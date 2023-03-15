@@ -1,0 +1,231 @@
+---
+title: "Validating Small Area Estimates Using Observed Statistics from the ACS 1-Year File"
+author: "Michele Carter"
+date: "8/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+# Setup
+
+knitr::opts_chunk$set(echo = TRUE)
+package.list <- c("knitr")
+for (p in package.list){
+  if (!p %in% installed.packages()[, "Package"]) install.packages(p)
+  library(p, character.only=TRUE)
+}
+
+# Run validate_estimates.R, which produces the images that I print below.
+
+#source("C:/users/mcarter/Documents/estimating eligible population counts/validate_estimates.R")
+
+```
+
+## Table of Contents
+
+[Validation Results for Tract-Level Small Area Estimates](#tract_results)   
+[Validation Results for County-Level Small Area Estimates](#county_results)
+
+## <a id="tract_results"></a>Validation Results for Tract-Level Small Area Estimates {.tabset}
+
+In this set of plots, we compare our estimates for the PUMA-level program eligible population share to the observed PUMA-level program eligible population share from the ACS 1-year file. We develop our PUMA-level estimates by aggregating Census tract-level small area estimates for the eligible population share (produced with or without LASSO regression, as indicated) to the PUMA level.
+
+### Plot 1
+
+```{r echo=FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/barscatterplot_tract_puma.png")
+
+```
+
+<br>
+
+### Plot 2a 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/kernelplot_diff_sae_tract_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced without LASSO regression.*   
+
+<br>
+
+### Plot 2b 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/kernelplot_diff_sae_lasso_tract_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced with LASSO regression.*   
+
+<br>
+
+### Plot 3a
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/kernelplot_pct_diff_sae_tract_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced without LASSO regression.*   
+
+<br>
+
+### Plot 3b 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/kernelplot_pct_diff_sae_lasso_tract_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced with LASSO regression.*   
+
+<br>
+
+### Plot 4a
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/scatterplot_sae_tract_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced without LASSO regression.*   
+
+<br>
+
+### Plot 4b 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/scatterplot_sae_lasso_tract_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced with LASSO regression.*   
+
+<br>
+
+### Plot 5a
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/scatterstdplot_sae_tract_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced without LASSO regression.*   
+
+<br>
+
+### Plot 5b 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/scatterstdplot_sae_tract_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced with LASSO regression.*   
+
+<br>
+
+## <a id="county_results"></a>Validation Results for County-Level Small Area Estimates {.tabset}
+
+In this set of plots, we compare our estimates for the PUMA-level program eligible population share to the observed PUMA-level program eligible population share from the ACS 1-year file. We develop our PUMA-level estimates by aggregating county-level small area estimates for the eligible population share (produced with or without LASSO regression, as indicated) to the PUMA level.
+
+### Plot 1
+
+```{r echo=FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/barscatterplot_county_puma.png")
+
+```
+
+### Plot 2a
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/kernelplot_diff_sae_county_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced without LASSO regression.*
+
+### Plot 2b 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/kernelplot_diff_sae_lasso_county_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced with LASSO regression.*
+
+### Plot 3a
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/kernelplot_pct_diff_sae_county_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced without LASSO regression.*
+
+### Plot 3b 
+
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/kernelplot_pct_diff_sae_lasso_county_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced with LASSO regression.*
+
+### Plot 4a
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/scatterplot_sae_county_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced without LASSO regression.*
+
+### Plot 4b 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/scatterplot_sae_lasso_county_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced with LASSO regression.*
+
+### Plot 5a
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/scatterstdplot_sae_county_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced without LASSO regression.*
+
+### Plot 5b 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+
+include_graphics("C:/users/mcarter/Documents/estimating eligible population counts/output/scatterstdplot_sae_county_puma.png")
+
+```
+
+*The small area estimates depicted in this plot are produced with LASSO regression.*

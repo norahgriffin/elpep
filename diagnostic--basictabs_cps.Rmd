@@ -1,0 +1,595 @@
+---
+title: "Basic Tabulations in the Current Population Survey"
+author: "Michele Carter"
+date: "8/28/2020"
+output: html_document
+fig_width: 6
+fig_height: 4
+---
+
+# Description of the Current Population Survey Sample
+
+In this document, we produce basic tabulations using a sample of families in the Current Population Survey (CPS) between May 2018 and April 2020. The CPS is a rotating panel where families are surveyed for four months, ignored for eight months, and surveyed again for an additional four months. Our analysis sample consists of the set of families with children under age five only. 
+
+We study two subsamples in our analysis:
+
+ 1.  The Basic Monthly Sample consists of the full set of monthly observations for families who participate in the CPS rotating panel. Families may appear more than once in the Basic Monthly Sample.
+ 2.  The Basic Monthly First Appearance Sample contains one observation per family, corresponding to each family's first appearance in the Basic Monthly Sample. 
+
+We produce descriptive statistics at various levels of geographic aggregation, including the Chicago metropolitan area, all U.S. metropolitan areas, all U.S. non-metropolitan areas, and all U.S. cities.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# --------------------------------------# 
+# PURPOSE: This file counts the number families with children
+# under age five in ASEC and Basic Monthly samples of the CPS for
+# 2019 through 2020, for Chicago metro + all US metro areas +
+# all US central cities.
+# DATA SETS USED BY THIS CODE: cps_20200720.csv (IPUMS extract)
+# R VERSION: 3.6.3
+
+# AUTHOR: Michele Carter
+# DATE CREATED: 2020-08-28
+# --------------------------------------#
+
+# Load packages
+
+package.list <- c("knitr", "dplyr", "ggplot2", "lubridate", "tidyr", "gmodels",
+                  "data.table")
+for (p in package.list){
+  if (!p %in% installed.packages()[, "Package"]) install.packages(p)
+  library(p, character.only=TRUE)
+}
+
+# Identify directory locations
+
+input <- "../input"
+output <- "../output"
+
+```
+
+```{r import cps data, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
+
+cps <- read.csv(file = file.path(input, "cps_20200720.csv.gz"))
+
+# Tabulate IL counties that appear in sample. Note that Cook County does not appear.
+
+cps %>% filter(STATEFIP==17) %>% group_by(COUNTY) %>% tally()
+
+# Keep observations from May 2018 to April 2020. Identify children under age 5.
+
+cps <- cps %>%
+       filter(between(YEAR, 2018, 2020)) %>%
+       mutate(UNDER5 = 1*between(AGE, 0, 5),
+              USA = 1)
+
+# Tabulate number of children under age 5.
+
+cps %>% group_by(UNDER5) %>% tally()
+cps %>% filter(STATEFIP==17) %>% group_by(UNDER5) %>% tally()
+
+```
+
+```{r write a function to produce aggregate counts, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
+
+aggregate_function <- function( geo_var, input_table){
+  
+  function_table <- rename(input_table, "GEO_ID" = geo_var)
+
+  # Keep families with children under 5
+  
+  function_table <- function_table %>% 
+                    group_by(YEAR, MONTH, GEO_ID, CPSID, FAMUNIT) %>% 
+                    summarize(FAMUNDER5 = sum(UNDER5)) %>%
+                    filter(FAMUNDER5>0)
+  
+  # Count families with children under 5 by geographic unit
+  
+  function_table <- function_table %>%
+                    group_by(YEAR, MONTH, GEO_ID) %>% 
+                    summarise(COUNT = n())
+  
+  return(function_table)
+
+}
+
+```
+
+``` {r produce family counts using asec 2019 sample, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
+
+# Keep ASEC sample (drop ASEC oversample households)
+
+asec <- cps %>%
+        filter((ASECFLAG==1) & (CPSID!=0))
+
+# Produce counts
+
+asec_state  <- aggregate_function("STATEFIP" , asec)
+asec_met    <- aggregate_function("METFIPS" , asec)
+asec_county <- aggregate_function("COUNTY" , asec)
+
+```
+
+```{r produce family counts using basic monthly sample, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
+
+# Keep Basic Monthly sample
+
+basicmonthly <- cps %>%
+                filter((ASECFLAG==2) | (is.na(cps$ASECFLAG)))
+
+# Produce counts for Illinois
+
+bm_il_state <- aggregate_function("STATEFIP" , basicmonthly %>% filter(STATEFIP==17))
+bm_il_met <- aggregate_function("METFIPS" , basicmonthly %>% filter(STATEFIP==17))
+bm_il_county <- aggregate_function("COUNTY" , basicmonthly %>% filter(STATEFIP==17))
+
+# Produce counts for all metropolitan areas in US
+
+bm_usmetro <- aggregate_function("USA" , basicmonthly %>% filter(METRO==2 | METRO==3 | METRO==4))
+
+# Produce counts for all non-metropolitan areas in US
+
+bm_usnonmetro <- aggregate_function("USA" , basicmonthly %>% filter(METRO==1))
+
+# Produce counts for central cities in US
+
+bm_uscity <- aggregate_function("USA" , basicmonthly %>% filter(METRO==2))
+
+```
+
+```{r produce family counts using basic monthly sample (first appearance only), include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
+
+# Keep Basic Monthly sample; keep each household's first appearance in the survey
+# only
+
+basicmonthlyfirst <- cps %>%
+                     filter((ASECFLAG==2) | (is.na(ASECFLAG))) %>%
+                     mutate(
+                       YEARFIRST = floor(CPSID/10000000000),
+                       MONTHFIRST = floor(CPSID/100000000) - (YEARFIRST*100)
+                       ) %>%
+                     filter((YEAR==YEARFIRST) & (MONTH==MONTHFIRST))
+
+# Produce counts for IL
+
+bm_first_il_state  <- aggregate_function("STATEFIP" , basicmonthlyfirst)
+bm_first_il_met    <- aggregate_function("METFIPS" , basicmonthlyfirst)
+bm_first_il_county <- aggregate_function("COUNTY" , basicmonthlyfirst)
+
+# Produce counts for all metropolitan areas in US
+
+bm_first_usmetro <- aggregate_function("USA" , basicmonthlyfirst %>% filter(METRO==2 | METRO==3 | METRO==4))
+
+# Produce counts for all non-metropolitan areas in US
+
+bm_first_usnonmetro <- aggregate_function("USA" , basicmonthlyfirst %>% filter(METRO==1))
+
+# Produce counts for central cities in US
+
+bm_first_uscity <- aggregate_function("USA" , basicmonthlyfirst %>% filter(METRO==2))
+
+```
+
+# Descriptive Plots for Current Population Survey Samples
+
+```{r write a function to plot number of families by year and month, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
+
+plot_famcount <- function(input_data, file_name){
+  
+  # Produce underlying data for plot
+  
+  plot <- input_data %>%
+          mutate(date = as.Date(paste0(YEAR, "-", MONTH, "-1")))
+  
+  # Save underlying data for plot as .csv file
+  
+  write.csv(plot %>% select(YEAR, MONTH, GEO_ID, COUNT), file.path(output, paste0(file_name, ".csv")))
+  
+  # Produce plot
+  
+  ggplot(plot, aes_string(x="date", y="COUNT"))+
+    geom_line(size=3) +
+    labs(title="Number of Families with Children under Five by Survey Month", 
+         x="Survey Month", 
+         y="Number of Families") +
+    scale_x_date( limits = as.Date(c("2018-5-1", "2020-4-1")), date_labels = "%Y%b", breaks = "3 months") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size  = 10), 
+          axis.text.y = element_text(size = 10), 
+          axis.title = element_text( size = 12), 
+          legend.position = "bottom",
+          legend.title = element_blank(),
+          legend.spacing.x = unit(0.25, 'cm'))
+  
+  #aspect_ratio <- 1.5
+  #ggsave(file.path(output, paste0(file_name, ".png")), height = 7, width = 7*aspect_ratio)
+  #return(plot %>% select(YEAR, MONTH, GEO_ID, COUNT))
+  
+}
+
+```
+
+```{r prepare samples for kernel density plots, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
+
+# Keep Basic Monthly sample of families with children under age 5
+
+kdplot <- basicmonthly %>%
+        mutate(SURVEY = as.factor(YEAR*100 + MONTH),
+               FAMINC_MID = case_when(FAMINC==100 ~ 0, 
+                                      FAMINC==210 ~ 6250,
+                                      FAMINC==300 ~ 8750,
+                                      FAMINC==430 ~ 11250,
+                                      FAMINC==470 ~ 13750,
+                                      FAMINC==500 ~ 17500,
+                                      FAMINC==600 ~ 22500,
+                                      FAMINC==710 ~ 27500,
+                                      FAMINC==720 ~ 32500,
+                                      FAMINC==730 ~ 37500,
+                                      FAMINC==740 ~ 45000,
+                                      FAMINC==820 ~ 55000,
+                                      FAMINC==830 ~ 67500,
+                                      FAMINC==841 ~ 87500,
+                                      FAMINC==842 ~ 125000,
+                                      FAMINC==843 ~ 150000,
+                                      TRUE ~ NaN),
+               EARNWEEK_CLEAN = ifelse(EARNWEEK==9999.99, NaN, EARNWEEK),
+               MISS_EARNWEEK = ifelse(EARNWEEK==9999.99, 1, 0)
+               ) %>%
+              group_by(YEAR, MONTH, STATEFIP, COUNTY, METFIPS, METRO, SURVEY, CPSID, FAMUNIT) %>% 
+              summarize(FAMINC_MID = mean(FAMINC_MID),
+                        MIN_MISS = min(MISS_EARNWEEK),
+                        FAMEARNWEEK = sum(EARNWEEK_CLEAN, na.rm=TRUE),
+                        FAMUNDER5 = sum(UNDER5),
+                        FAMSIZE = sum(USA)) %>%
+              filter(FAMUNDER5>0) %>%
+              mutate(FAMEARNWEEK = ifelse(MIN_MISS==1, NaN, FAMEARNWEEK),
+                     FAMEARNWEEK_FPL = case_when(FAMSIZE==1 ~ FAMEARNWEEK/12060,
+                                                 FAMSIZE==2 ~ FAMEARNWEEK/16240,
+                                                 FAMSIZE==3 ~ FAMEARNWEEK/20420,
+                                                 FAMSIZE==4 ~ FAMEARNWEEK/24600,
+                                                 FAMSIZE==5 ~ FAMEARNWEEK/28780,
+                                                 FAMSIZE==6 ~ FAMEARNWEEK/32960,
+                                                 FAMSIZE==7 ~ FAMEARNWEEK/37140,
+                                                 FAMSIZE==8 ~ FAMEARNWEEK/41320,
+                                                 FAMSIZE==9 ~ FAMEARNWEEK/(41320+4180),
+                                                 FAMSIZE==10 ~ FAMEARNWEEK/(41320+(4180*2)),
+                                                 FAMSIZE==11 ~ FAMEARNWEEK/(41320+(4180*3)),
+                                                 FAMSIZE==12 ~ FAMEARNWEEK/(41320+(4180*4)),
+                                                 FAMSIZE==13 ~ FAMEARNWEEK/(41320+(4180*5)),
+                                                 FAMSIZE==14 ~ FAMEARNWEEK/(41320+(4180*6)),
+                                                 FAMSIZE==15 ~ FAMEARNWEEK/(41320+(4180*7)),
+                                                 FAMSIZE==16 ~ FAMEARNWEEK/(41320+(4180*8)),
+                                                 TRUE ~ NaN),
+                     FAMINC_MID_FPL = case_when(FAMSIZE==1 ~ FAMINC_MID/12060,
+                                                FAMSIZE==2 ~ FAMINC_MID/16240,
+                                                FAMSIZE==3 ~ FAMINC_MID/20420,
+                                                FAMSIZE==4 ~ FAMINC_MID/24600,
+                                                FAMSIZE==5 ~ FAMINC_MID/28780,
+                                                FAMSIZE==6 ~ FAMINC_MID/32960,
+                                                FAMSIZE==7 ~ FAMINC_MID/37140,
+                                                FAMSIZE==8 ~ FAMINC_MID/41320,
+                                                FAMSIZE==9 ~ FAMINC_MID/(41320+4180),
+                                                FAMSIZE==10 ~ FAMINC_MID/(41320+(4180*2)),
+                                                FAMSIZE==11 ~ FAMINC_MID/(41320+(4180*3)),
+                                                FAMSIZE==12 ~ FAMINC_MID/(41320+(4180*4)),
+                                                FAMSIZE==13 ~ FAMINC_MID/(41320+(4180*5)),
+                                                FAMSIZE==14 ~ FAMINC_MID/(41320+(4180*6)),
+                                                FAMSIZE==15 ~ FAMINC_MID/(41320+(4180*7)),
+                                                FAMSIZE==16 ~ FAMINC_MID/(41320+(4180*8)),
+                                                TRUE ~ NaN)) 
+
+# Keep Basic Monthly first appearance sample of families with children under age 5
+
+kdplotfirst <- basicmonthlyfirst %>%
+        mutate(SURVEY = as.factor(YEAR*100 + MONTH),
+               FAMINC_MID = case_when(FAMINC==100 ~ 0, 
+                                      FAMINC==210 ~ 6250,
+                                      FAMINC==300 ~ 8750,
+                                      FAMINC==430 ~ 11250,
+                                      FAMINC==470 ~ 13750,
+                                      FAMINC==500 ~ 17500,
+                                      FAMINC==600 ~ 22500,
+                                      FAMINC==710 ~ 27500,
+                                      FAMINC==720 ~ 32500,
+                                      FAMINC==730 ~ 37500,
+                                      FAMINC==740 ~ 45000,
+                                      FAMINC==820 ~ 55000,
+                                      FAMINC==830 ~ 67500,
+                                      FAMINC==841 ~ 87500,
+                                      FAMINC==842 ~ 125000,
+                                      FAMINC==843 ~ 150000,
+                                      TRUE ~ NaN),
+               EARNWEEK_CLEAN = ifelse(EARNWEEK==9999.99, NaN, EARNWEEK),
+               MISS_EARNWEEK = ifelse(EARNWEEK==9999.99, 1, 0)
+               ) %>%
+              group_by(YEAR, MONTH, STATEFIP, COUNTY, METFIPS, METRO, SURVEY, CPSID, FAMUNIT) %>% 
+              summarize(FAMINC_MID = mean(FAMINC_MID),
+                        MIN_MISS = min(MISS_EARNWEEK),
+                        FAMEARNWEEK = sum(EARNWEEK_CLEAN, na.rm=TRUE),
+                        FAMUNDER5 = sum(UNDER5),
+                        FAMSIZE = sum(USA)) %>%
+              filter(FAMUNDER5>0) %>%
+              mutate(FAMEARNWEEK = ifelse(MIN_MISS==1, NaN, FAMEARNWEEK),
+                     FAMEARNWEEK_FPL = case_when(FAMSIZE==1 ~ FAMEARNWEEK/12060,
+                                                 FAMSIZE==2 ~ FAMEARNWEEK/16240,
+                                                 FAMSIZE==3 ~ FAMEARNWEEK/20420,
+                                                 FAMSIZE==4 ~ FAMEARNWEEK/24600,
+                                                 FAMSIZE==5 ~ FAMEARNWEEK/28780,
+                                                 FAMSIZE==6 ~ FAMEARNWEEK/32960,
+                                                 FAMSIZE==7 ~ FAMEARNWEEK/37140,
+                                                 FAMSIZE==8 ~ FAMEARNWEEK/41320,
+                                                 FAMSIZE==9 ~ FAMEARNWEEK/(41320+4180),
+                                                 FAMSIZE==10 ~ FAMEARNWEEK/(41320+(4180*2)),
+                                                 FAMSIZE==11 ~ FAMEARNWEEK/(41320+(4180*3)),
+                                                 FAMSIZE==12 ~ FAMEARNWEEK/(41320+(4180*4)),
+                                                 FAMSIZE==13 ~ FAMEARNWEEK/(41320+(4180*5)),
+                                                 FAMSIZE==14 ~ FAMEARNWEEK/(41320+(4180*6)),
+                                                 FAMSIZE==15 ~ FAMEARNWEEK/(41320+(4180*7)),
+                                                 FAMSIZE==16 ~ FAMEARNWEEK/(41320+(4180*8)),
+                                                 TRUE ~ NaN),
+                     FAMINC_MID_FPL = case_when(FAMSIZE==1 ~ FAMINC_MID/12060,
+                                                FAMSIZE==2 ~ FAMINC_MID/16240,
+                                                FAMSIZE==3 ~ FAMINC_MID/20420,
+                                                FAMSIZE==4 ~ FAMINC_MID/24600,
+                                                FAMSIZE==5 ~ FAMINC_MID/28780,
+                                                FAMSIZE==6 ~ FAMINC_MID/32960,
+                                                FAMSIZE==7 ~ FAMINC_MID/37140,
+                                                FAMSIZE==8 ~ FAMINC_MID/41320,
+                                                FAMSIZE==9 ~ FAMINC_MID/(41320+4180),
+                                                FAMSIZE==10 ~ FAMINC_MID/(41320+(4180*2)),
+                                                FAMSIZE==11 ~ FAMINC_MID/(41320+(4180*3)),
+                                                FAMSIZE==12 ~ FAMINC_MID/(41320+(4180*4)),
+                                                FAMSIZE==13 ~ FAMINC_MID/(41320+(4180*5)),
+                                                FAMSIZE==14 ~ FAMINC_MID/(41320+(4180*6)),
+                                                FAMSIZE==15 ~ FAMINC_MID/(41320+(4180*7)),
+                                                FAMSIZE==16 ~ FAMINC_MID/(41320+(4180*8)),
+                                                TRUE ~ NaN)) 
+                                                
+```
+
+```{r write functions to plot kernel density plots for household income, include = FALSE, echo = FALSE, warning = FALSE, message = FALSE}
+
+plot_kernel1 <- function(input_data, file_name){
+  
+  # Produce kernel density plot for total family income (full sample)
+  
+  ggplot(input_data) +
+    geom_density(aes(x=FAMINC_MID, color=SURVEY)) +
+    labs(title="Kernel Density for Family Income", 
+         x="Family Income", 
+         y="Density") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size  = 10), 
+          axis.text.y = element_text(size = 10), 
+          axis.title = element_text( size = 12), 
+          legend.position = "bottom",
+          legend.title = element_blank(),
+          legend.spacing.x = unit(0.25, 'cm'))
+  
+  #aspect_ratio <- 1.5
+  #ggsave(file.path(output, paste0("kdensity_famtotalincome_", file_name, ".png")) , height = 7, width = 7*aspect_ratio)
+  
+}
+
+plot_kernel3 <- function(input_data, file_name){
+  
+  # Produce kernel density plot for total family income (full sample)
+  
+  ggplot(input_data) +
+    geom_density(aes(x=FAMINC_MID_FPL, color=SURVEY)) +
+    labs(title="Kernel Density for Family Income-to-Poverty Ratio", 
+         x="Family Income/Federal Poverty Level", 
+         y="Density") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size  = 10), 
+          axis.text.y = element_text(size = 10), 
+          axis.title = element_text( size = 12), 
+          legend.position = "bottom",
+          legend.title = element_blank(),
+          legend.spacing.x = unit(0.25, 'cm'))
+
+}
+
+```
+
+## Number of Families in Basic Monthly Sample by (Year, Month) {.tabset}
+
+### Chicago Metro
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_famcount(bm_il_met %>% filter(GEO_ID==16980), "count_chimetro")
+```
+
+<br>
+
+### U.S. Metro
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_famcount(bm_usmetro, "count_usmetro")
+```
+
+<br>
+
+### U.S. Non-Metro
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_famcount(bm_usnonmetro, "count_usnonmetro")
+```
+
+<br>
+
+### U.S. City
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_famcount(bm_uscity, "count_uscity")
+```
+
+<br>
+
+## Number of Families in Basic Monthly First Appearance Sample by (Year, Month) {.tabset}
+
+### Chicago Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_famcount(bm_first_il_met %>% filter(GEO_ID==16980), "count_chimetro_fam_newentry")
+```
+
+<br>
+
+### U.S. Metro
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_famcount(bm_first_usmetro, "count_usnonmetro_fam_newentry")
+```
+
+<br>
+
+### U.S. Non-Metro
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_famcount(bm_first_usnonmetro, "count_usnonmetro_fam_newentry")
+```
+
+<br>
+
+### U.S. City
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_famcount(bm_first_uscity, "count_uscity_fam_newentry")
+```
+
+<br>
+
+## Kernel Density for Household Income in Basic Monthly Sample {.tabset}
+
+### Chicago Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel1(kdplot %>% filter(METFIPS==16980), "chimetro")
+```
+
+<br>
+
+### U.S. Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel1(kdplot %>% filter(METRO==2 | METRO==3 | METRO==4), "usmetro")
+```
+
+<br>
+
+### U.S. Non-Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel1(kdplot %>% filter(METRO==1), "usnonmetro")
+```
+
+<br>
+
+### U.S. City
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel1(kdplot %>% filter(METRO==2), "uscity")
+```
+
+<br>
+
+## Kernel Density for Household Income in in Basic Monthly First Appearance Sample {.tabset}
+
+### Chicago Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel1(kdplotfirst %>% filter(METFIPS==16980), "chimetro")
+```
+
+<br>
+
+### U.S. Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel1(kdplotfirst %>% filter(METRO==2 | METRO==3 | METRO==4), "usmetro")
+```
+
+<br>
+
+### U.S. Non-Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel1(kdplotfirst %>% filter(METRO==1), "usnonmetro")
+```
+
+<br>
+
+### U.S. City
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel1(kdplotfirst %>% filter(METRO==2), "uscity")
+```
+
+<br>
+
+## Kernel Density for Household Income-to-Poverty Ratio in Basic Monthly Sample {.tabset}
+
+### Chicago Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel3(kdplot %>% filter(METFIPS==16980), "chimetro")
+```
+
+<br>
+
+### U.S. Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel3(kdplot %>% filter(METRO==2 | METRO==3 | METRO==4), "usmetro")
+```
+
+<br>
+
+### U.S. Non-Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel3(kdplot %>% filter(METRO==1), "usnonmetro")
+```
+
+<br>
+
+### U.S. City
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel3(kdplot %>% filter(METRO==2), "uscity")
+```
+
+<br>
+
+## Kernel Density for Household Income-to-Poverty Ratio in Basic Monthly First Appearance Sample {.tabset}
+
+### Chicago Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel3(kdplotfirst %>% filter(METFIPS==16980), "chimetro")
+```
+
+<br>
+
+### U.S. Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel3(kdplotfirst %>% filter(METRO==2 | METRO==3 | METRO==4), "usmetro")
+```
+
+<br>
+
+### U.S. Non-Metro 
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel3(kdplotfirst %>% filter(METRO==1), "usnonmetro")
+```
+
+<br>
+
+### U.S. City
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+plot_kernel3(kdplotfirst %>% filter(METRO==2), "uscity")
+```
+
+<br>

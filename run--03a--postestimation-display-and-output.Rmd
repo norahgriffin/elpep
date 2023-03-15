@@ -1,0 +1,295 @@
+
+<!-- This .Rmd file is set up to run either independently by checking for 
+the presence of necessary objects in the global environment and running 
+related scripts if not, or also as a child to the "main-doc". For that latter
+reason, comments and headings that are not relevant to a final report to
+pubic audiences are suppressed or moved to code chunks that can optionally be 
+`echo`ed as desired. -->
+
+```{r}
+# run scripts for necessary packages and objects as necessary
+if (!"my_state_abbr" %in% objects()) source("settings--profile.R", echo = FALSE)
+if (!"chHexs"        %in% objects()) source("settings--main.R", echo = FALSE)
+if (!"bin_age"       %in% objects()) source("method--general-helper-functions.R", echo = FALSE)
+if (!"calc_cps_transitions" %in% objects()) source_rmd("method--nowcasting-functions.Rmd", echo = FALSE)
+```
+
+```{r load final results from now-casting and select a sensitivity}
+load(file = glue("{output_path}Eligibility estimates using conditional transition ratio - {my_output_tag}.Rda"))
+load(file = glue("{output_path}pop_data_{my_output_tag}.Rda"))
+```
+
+```{r select a sensitivity}
+# /*\ This is something that users of this method must specify
+# Below, there are several `if` clauses that already implement--and describe--
+# logic for selecting a sensitivity specific for each of several run specifications
+
+if (str_detect(my_output_tag, "IL2022")) {
+  # Rationale is we're not just focused on metro areas, and we want the most
+  # up-to-date estimates as possible
+  nowcast_selected_sens <-
+    nowcast_out[cps_geo_subsample == "none" & 
+                cps_base_recency == "most_recent"]  
+} else if (str_detect(my_output_tag, "Cook|Chi")) {
+  # Rationale is we are focused on a metro areas, and we want estimates for 2022
+  # that are parallel to 2021, given that this method is part of a sequence of
+  # a sequence of annual reports
+  nowcast_selected_sens <-
+    nowcast_out[cps_geo_subsample == "metros" & 
+                cps_base_recency == "allbase"] %>% 
+    mutate(age = str_extract(sae_spec, "\\d+$"),
+           age = case_when(age == "05"  ~ "age_0to5",
+                           age == "612" ~ "age_6to12"),
+           sae_spec = str_replace(sae_spec, "_\\d+$", ""))
+}
+```
+
+
+```{r generate parallel constructions for base (sae) and nowcast}
+# Establish a general setup of parallel field names
+
+nowcast_parallel_setup <- 
+  nowcast_selected_sens %>%
+  # /!\ Need to produce/bring in standard errors for the SAE. Assigning these 0
+  # as a placeholder.
+  mutate(base_share_se = 0,
+         nowcast_share = elig_share,
+         nowcast_share_se = elig_share_se)
+
+# For each output, select the sensitivity and (calculation of) related measure
+
+nowcast_parallel_deep_pov <- 
+  nowcast_parallel_setup %>% 
+  filter(outcome_var == "deep_pov_post_adj",
+         str_detect(sae_spec, "incpov_ctrls2534")) %>% 
+  mutate(base_share = share_0_50)
+
+nowcast_parallel_hs_elig <- 
+  nowcast_parallel_setup %>% 
+  filter(outcome_var == "hs_elig_post_adj",
+         str_detect(sae_spec, "incpov_ctrls2534")) %>% 
+  mutate(base_share = share_0_50 + share_50_100)
+
+nowcast_parallel_pfa_elig <- 
+  nowcast_parallel_setup %>% 
+  filter(outcome_var == "pfa_elig_post_adj",
+         str_detect(sae_spec, "incpov_ctrls2534")) %>% 
+  mutate(base_share = share_0_50 + share_50_100 + share_100_200)
+
+nowcast_parallel_upk_elig <- 
+  nowcast_parallel_setup %>% 
+  filter(outcome_var == "upk_elig_post_adj",
+         str_detect(sae_spec, "incpov_ctrls2534")) %>% 
+  mutate(base_share = share_0_50 + share_50_100 + share_100_200)
+
+nowcast_parallel_ccdf_elig <- 
+  nowcast_parallel_setup %>% 
+  filter(outcome_var == "ccdf_elig_tight_inc_adj",
+         str_detect(sae_spec, "ccdf_wk_pov"))
+
+if (local_ccdf_thresh == 200) {
+  nowcast_parallel_ccdf_elig <- 
+    nowcast_parallel_ccdf_elig %>% 
+    mutate(base_share = share_WorkElig_0_100 + share_WorkElig_100_200)
+} else if (local_ccdf_thresh == 225) {
+  nowcast_parallel_ccdf_elig <- 
+    nowcast_parallel_ccdf_elig %>% 
+    mutate(base_share = share_WorkElig_0_75 + share_WorkElig_75_150 + share_WorkElig_150_225)
+}
+```
+
+
+```{r combined the parallel constructions for base (sae) and nowcast}
+
+# Generate parallel base/nowcast constructions wide by base/now measures 
+nowcast_parallel_preshape <- 
+  bind_rows(nowcast_parallel_deep_pov,
+            nowcast_parallel_hs_elig,
+            nowcast_parallel_pfa_elig,
+            nowcast_parallel_upk_elig,
+            nowcast_parallel_ccdf_elig) %>% 
+  select(GEOID, outcome_var, age, base_share, base_share_se, nowcast_share, nowcast_share_se) %>% 
+  # /!\ ** This unique() should not be necessary. However, it's occurring because
+  # there are duplicates resulting from a merge of the crosswalk file, due to
+  # overlaps with ZCTAs. There should be a cleaner, unique crosswalk of census
+  # shapes--tract, PUMA, and County--with other crosswalks occurring later, as needed.
+  unique()
+
+# Reshape to long format, with only different stats wide
+nowcast_parallel <- 
+  nowcast_parallel_preshape %>% 
+  pivot_longer(cols = matches("share")) %>% 
+  separate(col = name, 
+           into = c("pd", "stat"),
+           sep = "_",
+           extra = "merge") %>% 
+  pivot_wider(names_from = stat,
+              values_from = value)
+```
+
+```{r merge population stats to calculate counts}
+pop_by_age_long <- 
+  pop_by_age %>% 
+  pivot_longer(cols = matches("age_.+_count")) %>% 
+  mutate(age = str_replace(name, "_count", ""),
+         pd = case_when(year == base_year     ~ "base",
+                        year == base_year + 1 ~ "nowcast")) %>% 
+  rename(pop_count = value) %>%
+  # /!\ Here again is where we need to bring in a proper standard error for
+  # population count estimates
+  mutate(pop_count_se = 0) %>% 
+  select(-name)
+
+nowcast_parallel_counts <- 
+  nowcast_parallel %>% 
+  merge(pop_by_age_long,
+        by = c("GEOID", "age", "pd"),
+        all.x = TRUE) %>% 
+  data.table() %>%
+  mutate(count    = share*pop_count,
+         count_se = se_product(share, pop_count, share_se, pop_count_se))
+```
+
+```{r save results}
+save(nowcast_parallel_counts,
+     most_recent_months,
+     file = glue("{output_path}Now-cast counts at the tract level, pre-disaggregation - {my_output_tag}.Rda"))
+```
+
+
+### Examine Now-cast Estimates versus Base-Year (SAE) Estimates
+
+We compare now-cast estimates to baseline SAE estimates for only Head Start eligibility, because in the SAE estimates we do not currently estimate <50% as its own threshold, nor income measures directly connected to CCDF eligibility.
+
+```{r reshape}
+share_pre_post <- 
+  nowcast_parallel_counts %>% 
+  select(-year) %>% 
+  pivot_longer(cols = matches("share|count")) %>% 
+  unite(wide_name, name, pd, sep = "_") %>% 
+  pivot_wider(names_from = wide_name,
+              values_from = value)
+```
+
+```{r function to compare now-cast vs SAE}
+comp_nowcast_vs_sae <- function(share_ests, title, xlab, ylab, save_tag) {
+  
+  my_plot <- 
+    ggplot(share_ests,
+           aes(x = share_base,
+               y = share_nowcast)) +
+    geom_point(alpha = 0.2) +
+    geom_45(color = "red") +
+    geom_smooth(se = FALSE,
+                color = "blue") +
+    # facet_wrap(~ sae_spec) +
+    scale_x_continuous(labels = percent) +
+    scale_y_continuous(labels = percent) +
+    labs(title = title,
+         x = xlab,
+         y = ylab) +
+    theme_minimal() +
+    theme(legend.position = "bottom",
+          axis.text = element_text(size = 11))
+  
+  if (save_tag != "") {
+    ggsave(plot = my_plot,
+           filename = glue("{output_path}nowcast_vs_sae_{my_output_tag}_{save_tag}.png"))
+  }
+  
+  return(my_plot)
+}
+```
+
+
+```{r compare now-cast vs SAE for deep poverty}
+comp_nowcast_vs_sae(share_ests = share_pre_post %>% filter(str_detect(outcome_var, "deep_pov")),
+                    title = case_when(my_output_tag == "IL" ~ "Tract-Level Now-Cast Estimates are Generally Above Baseline",
+                                      TRUE ~ ""),
+                    xlab = glue("Baseline (SAE) - {base_year}"),
+                    ylab = glue("Now-Cast - {base_year+1}"),
+                    save_tag = "deep_pov")
+```
+
+```{r compare now-cast vs SAE for HS}
+comp_nowcast_vs_sae(share_ests = share_pre_post %>% filter(str_detect(outcome_var, "hs_elig")),
+                    title = case_when(my_output_tag == "IL" ~ "Tract-Level Now-Cast Estimates are Generally Above Baseline",
+                                      TRUE ~ ""),
+                    xlab = glue("Baseline (SAE) - {base_year}"),
+                    ylab = glue("Now-Cast - {base_year+1}"),
+                    save_tag = "hs_elig")
+```
+
+```{r compare now-cast vs SAE for CCAP}
+comp_nowcast_vs_sae(share_ests = share_pre_post %>% filter(str_detect(outcome_var, "ccdf_elig")),
+                    title = case_when(my_output_tag == "IL" ~ "Tract-Level Now-Cast Estimates are Generally Above Baseline",
+                                      TRUE ~ ""),
+                    xlab = glue("Baseline (SAE) - {base_year}"),
+                    ylab = glue("Now-Cast - {base_year+1}"),
+                    save_tag = "ccdf_elig")
+```
+
+
+```{r add community characteristics}
+share_pre_post_chars <- 
+  left_join(share_pre_post, 
+            acs5tract,
+            by = "GEOID")
+```
+
+```{r function to plot diffs vs community characteristics}
+plot_elig_diff_vs_char <- 
+  function(outcome_string,
+           outcome_desc,
+           char_field,
+           char_desc,
+           save_tag = "") {
+    
+    dt_plot <-
+      share_pre_post_chars %>% 
+      filter(str_detect(outcome_var, outcome_string))
+    
+    my_plot <- 
+      ggplot(dt_plot,
+             aes(x = get(char_field), # ed_lths
+                 y = share_nowcast - share_base)) +
+      geom_point(alpha = 0.2) +
+      geom_hline(yintercept = 0,
+                 color = "darkblue",
+                 linewidth = 0.75) +
+      geom_smooth(color = "red",
+                  se = FALSE) +
+      scale_x_continuous(label = percent) +
+      scale_y_continuous(label = percent) +
+      labs(x = char_desc,
+           y = glue("Change in {outcome_desc} - {base_year} to {base_year + 1}")) +
+      theme_minimal()
+    
+    if (save_tag != "") {
+      ggsave(plot = my_plot,
+             filename = glue("{output_path}Difference in Eligibility in {outcome_desc} {save_tag}_{my_output_tag}.png"),
+             width = 6,
+             height = 4,
+             units = "in")
+    }
+    print(my_plot)
+  }
+```
+
+
+```{r}
+plot_elig_diff_vs_char(outcome_string = "hs_elig",
+                       outcome_desc   = "HS Eligibility", 
+                       char_field     = "raceeth_wh_nonh_est",
+                       char_desc      = "% White Non-Hisp in Tract",
+                       save_tag       = "by white residence")
+```
+
+```{r}
+plot_elig_diff_vs_char(outcome_string = "ccdf_elig",
+                       outcome_desc   = glue("{local_ccdf_name_short} Eligibility"), 
+                       char_field     = "raceeth_wh_nonh_est",
+                       char_desc      = "% White Non-Hisp in Tract",
+                       save_tag       = "by white residence")
+```
+

@@ -1,0 +1,230 @@
+
+<!-- This .Rmd file is set up to run either independently by checking for 
+the presence of necessary objects in the global environment and running 
+related scripts if not, or also as a child to the "main-doc". For that latter
+reason, comments and headings that are not relevant to a final report to
+pubic audiences are suppressed or moved to code chunks that can optionally be 
+`echo`ed as desired. -->
+
+```{r}
+# set flags for running this 01b script
+print_documentation <- FALSE
+```
+
+```{r }
+# run scripts for necessary packages and objects as necessary
+if (!"my_state_abbr" %in% objects()) source("settings--profile.R", echo = FALSE)
+if (!"chHexs"        %in% objects()) source("settings--main.R", echo = FALSE)
+if (!"bin_age"       %in% objects()) source("method--general-helper-functions.R", echo = FALSE)
+```
+
+## Details of ACS 1-Year Microdata Development
+
+```{r read in acs1 data and documentation}
+my_pums <- 
+  pums_variables %>% 
+  filter(year == 2019, # base_year, ... currently using 2019 because 2021 documentation is not yet available for the current version of tidycensus
+         survey == "acs1"
+  )
+
+acs1_save_file <- glue("{input_path}census_acs1_{base_year}.csv")
+if (!file.exists(acs1_save_file)) {
+  source("pull--acs1-microdata.R")
+} else {
+  acs1 <- fread(file = acs1_save_file)
+}
+```
+
+
+```{r review acs documentation}
+# Codebook for full and interactive codebook can be viewed by running the `View(pums_variables)`
+# command. However, this cannot render within an .Rmd file, so it is here 
+# enclosed in an `if` that will not run when the document is knit
+if (FALSE) {
+  View(my_pums)
+}
+```
+
+ACS 1-Year microdata are subset to households not living in group quarters, to `r my_state_abbr` records, and to year `r base_year`.
+
+```{r subset microdata}
+# TYPE (Census) -- 1 - Housing unit, 2 - group quarters
+# Sample restricted to housing unit only
+acs1 <- 
+  acs1[TYPE %in% c(1) &
+         ST == my_state_fip &
+         YEAR == max(YEAR)]
+
+# If county has been specified, load geographic data to perform subsetting to
+# relevant PUMAs
+if (exists("my_county")) {
+  load(glue("{output_path}geo_data_{my_output_tag}.Rda"))
+  acs1 <- acs1[PUMA %in% geo_crosswalk$PUMA]
+}
+```
+
+
+```{r view variables relevant to head-of-household coding, results = "asis", eval = developer_mode}
+if (print_documentation) {
+  View(my_pums %>% filter(var_code %in% c("RELSHIPP", "SCHL", "INDP", "RAC2P", "HISP")),
+       "YEAR & TYPE Doc")
+}
+```
+
+```{r investigate the number of households without a householder, eval = developer_mode}
+acs1[by = .(YEAR, SERIALNO),
+     j  = .(has_hoh = maxNA(RELSHIPP == 20))] %>% 
+  summary()
+```
+
+
+```{r prepare ACS 1-year microdata for head of household}
+# Note: for households that contain multiple families, this method may produce inaccurate results (i.e., head of household may be unrelated to child in multi-family households).
+acs1_hoh <- 
+  acs1 %>%
+  .[RELSHIPP == 20] %>%
+  .[, `:=`(hoh_educ = 
+             case_when(between(SCHL,  2, 14) ~ "less_hs", 
+                       between(SCHL, 15, 17) ~ "hs", 
+                       between(SCHL, 18, 20) ~ "somecoll", 
+                       between(SCHL, 21, 21) ~ "coll", 
+                       between(SCHL, 22, 24) ~ "collplus", 
+                       TRUE ~ "NA"), # Default value is NA
+           hoh_industry = bin_industry(INDP), # bin_industry() is defined in the `helper` script
+           hoh_race =
+             case_when(RAC2P == 1 ~ "white", 
+                       RAC2P == 2 ~ "black", 
+                       TRUE ~ "other_multiple"),
+           hoh_hispanic = 1*(HISP != 1))] %>% # Note: multiplication by 1 converts the TRUE/FALSE output to 1/0
+  .[j = hoh_industry_vulnerable := ifelse(hoh_industry == "NA", 
+                                          "NA", 
+                                          str_detect(hoh_industry, "educhealth|food"))] %>% # Note: the second argument to str_detect() uses regular experessions. For reference, see e.g. https://regexone.com/
+  select(YEAR, SAMPLE, SERIALNO, hoh_educ, hoh_industry, hoh_industry_vulnerable, hoh_race, hoh_hispanic)
+```
+
+
+### Prepare the Family-Level Records
+
+Although child records include family income information sufficient to establish eligibility for Head Start and Preschool For All, eligibility for the Child Care Assistance Program (CCAP) requires information on whether adults in the household are engaged in qualifying activities, either work or education.
+
+Note that this information is not strictly necessary to develop for the baseline sample, as the baseline must only establish "vulnerability" to become eligible. However, information about parent activities related to CCAP-eligibility may well be meaningful vulnerabilities.
+
+```{r view variables relevant to constructing household-level measures, eval = developer_mode, results = "asis"}
+if (print_documentation) {
+  show_ipums_doc(acs_documentation, 
+               fields = c("RELSHIPP", #"RELATED", # Note: currently no info on detailed  relationship in Census data (versus our original source of IPUMS)
+                          "SCH", "ESR" #, "EMPSTATD"
+                          ))  
+}
+```
+
+
+
+```{r prepare ACS 1-year microdata for families}
+
+# Key field values (Census)
+# ESR -- 0 - N/A (less than 16 yrs old), 1 - Civilian employed, at work, 2 - Civilian employed, with a job but not at work, 3 - Unemployed, 4 - Armed forces, at work, 5 - Armed forces, with a job but not at work, 6 - Not in labor force
+# SCH -- 0 - N/A (less than 3 yrs old), 1 - No, has not attended in the last 3 months, 2 - Yes, public school or public college, 3 - Yes, private school or college or home school
+
+acs1_hh <-
+  acs1 %>% 
+  .[i = RELSHIPP %in% c(20,21,23), # subset to only householder and spouse records
+    by = .(YEAR, SAMPLE, SERIALNO),
+    j = .(spouse_present = maxNA(RELSHIPP %in% c(21,23)), # This corresponds to spouse
+          all_work_sch   = minNA(ESR %in% 1:2 | SCH %in% 2:3))] # corresponds to working, or in school
+
+  # /!\ Not built, but possibly of interest may be gender of households, and
+  # separate examination of SCH and ESR
+
+# Allow examination of cases
+if (FALSE) {
+  # Directly examine build
+  check <- 
+    merge(acs1[j = .(YEAR, SERIALNO, RELSHIPP, SEX, AGEP, SCH, ESR)],
+          acs1_hh[j = .(YEAR, SERIALNO, spouse_present, all_work_sch)],
+          all = TRUE) %>% 
+    .[order(SERIALNO, YEAR)]
+  View(check)
+  
+  # Calculate how many indicators are missing
+  check[j = .(mean(is.na(spouse_present)),
+              mean(is.na(all_work_sch)))]
+  
+}
+```
+
+<!-- ### Prepare Child Records -->
+
+```{r view variables relevant to child coding, results = "asis", eval = developer_mode}
+if (print_documentation) {
+  show_ipums_doc(acs_documentation,
+                 c("AGEP", "POVPIP", "RAC2P", "HISP", "PWGTP", "YEAR", "SERIALNO"#, "FAMUNIT" # no variables for famunit 
+                   ))
+}
+```
+
+```{r prepare ACS 1-year microdata for children}
+acs1_child <- 
+  acs1[AGEP <= 14] %>% 
+  merge(acs1_hoh, 
+        by = c("YEAR", "SAMPLE", "SERIALNO"), 
+        all.x = TRUE) %>%
+  merge(acs1_hh,
+        by = c("YEAR", "SERIALNO"),
+        all.x = TRUE) %>% 
+  .[, fam_incpov_ratio := POVPIP / 100] %>% 
+  .[, `:=`(child_agegroup = bin_age(AGEP),
+           child_race = 
+             case_when(RAC2P == 1 ~ "white",
+                       RAC2P == 2 ~ "black",
+                       TRUE ~ "other_multiple"),
+           child_hispanic = 1*(HISP != 1),
+           fam_incpov_ratio_cat_mix   = bin_incpov_ratio(fam_incpov_ratio, pov_breaks = c(0, 0.5, 1.0, 2.0, 3.0)),
+           fam_incpov_ratio_cat_by50  = bin_incpov_ratio(fam_incpov_ratio, pov_breaks = seq(0, 3, by = 0.5)),
+           fam_incpov_ratio_cat_by75  = bin_incpov_ratio(fam_incpov_ratio, pov_breaks = seq(0, 3, by = 0.75)),
+           fam_incpov_ratio_cat_by100 = bin_incpov_ratio(fam_incpov_ratio, pov_breaks = seq(0, 3, by = 1.0)),
+           obs_weight = PWGTP)] %>% 
+  .[j = `:=`(work_spouse_status = paste(ifelse(all_work_sch   == 1, "WorkElig",      "NotWorkElig"),
+                                        ifelse(spouse_present == 1, "SpousePresent", "NoSpousePresent"),
+                                        sep = "_"),
+             work_incpov_status100 = paste(ifelse(all_work_sch == 1, "WorkElig", "NotWorkElig"),
+                                        fam_incpov_ratio_cat_by100,
+                                        sep = "_"),
+             work_incpov_status75  = paste(ifelse(all_work_sch == 1, "WorkElig", "NotWorkElig"),
+                                           fam_incpov_ratio_cat_by75,
+                                           sep = "_"))]
+```
+
+```{r examine frequencies, eval = developer_mode}
+plot_freq <- function(meas) {
+  ggplot(acs1_child,
+         aes_string(x = meas)) +
+    stat_count() + 
+    theme(axis.text.x = element_text(angle = 90))
+}
+plot_freq("fam_incpov_ratio_cat_by50")
+plot_freq("fam_incpov_ratio_cat_by100")
+plot_freq("work_spouse_status")
+plot_freq("work_incpov_status100")
+```
+
+
+
+```{r verify that data sets only have one obs per child, eval = developer_mode}
+acs1_child %>% 
+  group_by("SAMPLE", "SERIALNO", "SPORDER") %>% 
+  summarize(count = n()) %>% 
+  group_by(count) %>% 
+  tally() 
+```
+
+
+```{r remove data sets that will not be used in any future data development}
+rm(acs1, acs1_hoh)
+gc()
+```
+
+```{r}
+save(acs1_child,
+     file = glue("{output_path}acs1_data_{my_output_tag}.Rda"))
+```

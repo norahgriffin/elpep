@@ -1,0 +1,900 @@
+
+<!-- This .Rmd file is set up to run either independently by checking for 
+the presence of necessary objects in the global environment and running 
+related scripts if not, or also as a child to the "main-doc". For that latter
+reason, comments and headings that are not relevant to a final report to
+pubic audiences are suppressed or moved to code chunks that can optionally be 
+`echo`ed as desired. -->
+
+```{r}
+# run scripts for necessary packages and objects as necessary
+if (!"my_state_abbr" %in% objects()) source("settings--profile.R", echo = FALSE)
+if (!"chHexs"        %in% objects()) source("settings--main.R", echo = FALSE)
+if (!"bin_age"       %in% objects()) source("method--general-helper-functions.R", echo = FALSE)
+if (!"direct_est_tract"     %in% objects()) source_rmd("method--small-area-estimation-functions.Rmd", echo = FALSE)
+
+rerun_sae <- TRUE
+```
+
+```{r load data for SAE runs}
+
+# Load prepped data
+for (f in c("geo", "acs1", "cps", "acs5", "pop")) {
+  # Note: the cps data is national, and thus doesn't depend on locality or 
+  # sensitivity, thus it's neither saved nor loaded with a particular output tag
+  if (f == "cps") {
+    load(file = glue("{output_path}{f}_data.Rda"))
+  } else {
+    load(file = glue("{output_path}{f}_data_{my_output_tag}.Rda"))
+  }
+}
+```
+
+## Examine size of potential vulnerability groups for modeling choices
+
+Investigate the potential depth of slicing vulnerability types and strata for potential use.
+
+```{r perform useful subsetting}
+acs1_child05_baseyr <-
+  acs1_child[YEAR == base_year & 
+               child_agegroup %in% c("0to2", "3to5")]
+
+acs1_child612_baseyr <-
+  acs1_child[YEAR == base_year & 
+               child_agegroup %in% c("6to8", "9to12")]
+```
+
+```{r establish function for showing comparisons}
+show_acs_n_bys <- function(by_vars) {
+  acs1_child05_baseyr[j = .(n = .N), 
+                      by = by_vars] %>% # child_agegroup, 
+    setorderv(cols = by_vars) %>%  # child_agegroup, 
+    datatable(filter = 'top')  
+}
+```
+
+<!-- /!\ Consider building this into a graphical view. -->
+
+```{r, eval = developer_mode}
+show_acs_n_bys(c("fam_incpov_ratio_cat_by100", "child_race"))
+```
+
+```{r age and income by 100s, eval = developer_mode}
+show_acs_n_bys("fam_incpov_ratio_cat_by100")
+```
+
+```{r age and income by 50s, eval = developer_mode}
+show_acs_n_bys("fam_incpov_ratio_cat_mix")
+```
+
+```{r age race pov, eval = developer_mode}
+show_acs_n_bys(c("fam_incpov_ratio_cat_by100", "child_race"))
+```
+
+```{r ed and industry, eval = developer_mode}
+show_acs_n_bys(c("hoh_educ", "hoh_industry"))
+```
+
+<!-- Note--vulnerable industry is defined as being in education, health, social services, arts, or food services. -->
+
+```{r ed and vulnerable industry, eval = developer_mode}
+show_acs_n_bys(c("hoh_educ", "hoh_industry_vulnerable"))
+```
+
+```{r investigate head of household characteristics for pandemic vulnerability -- specifically social services and food, eval = developer_mode}
+show_acs_n_bys(c("fam_incpov_ratio_cat_by100", "hoh_industry_vulnerable"))
+```
+
+## Results of SAE Estimation
+
+```{r setup run options based on local ccdf details}
+# Categories of income-to-poverty ratios available in the ACS 5-year data
+# "r0to50", "r50to74", "r75to99", "r100to124", "r125to149", "r150to174", "r175to184", 
+# "r185to199", "r200to299", "r300to399", "r400to499", "r500plus"
+
+# NSM -- Note: the `incpov_ranges_for_estimation`, which are predictors available
+# in the ACS 5-year data, do not strictly need to line up to the `incpov_spec_field` 
+# categories, which is constructed in ACS 1-year data. Strictly speaking, they just
+# need to be reasonable as predictors. However, because they are preserved in
+# the output, and since the ACS1 categories are how the SAE estimates are divided,
+# it's useful to build comparisons if there is alignment.
+
+incpov_spec_field <- "fam_incpov_ratio_cat_mix" # "fam_incpov_ratio_cat_by100"
+incpov_ref_value  <- "0%-50%"  # "0%-100%"
+incpov_ranges_for_estimation <- c("0to50", "50to100", "100to199", "200to299")
+
+# For the sake of building comparisons of SAE estimates, and now"-cast estimates, 
+# the specification of work_incpov is aligned with the local CCDF threshold. Thus,
+# the final now-cast CCDF eligibility status--which does not strictly need to 
+# align with even the SAE estimates--can be compared to AcS 1-year or SAE 
+# estimates by adding up work_incpov_status75 %in% c("work). Thus, if the 
+# CCDF threshold is 225 FPL, the SAE estimates `work_incpov_stats75 %in% 
+# c("WorkElig_0%-75%", "WorkElig_75%-150%", "WorkElig_150%-225%")` could be
+# added to make a direct comparison.
+
+work_incpov_spec_field <- 
+  case_when(local_ccdf_thresh == 200 ~ "work_incpov_status100",
+            local_ccdf_thresh == 225 ~ "work_incpov_status75",
+            TRUE ~ "work_incpov_status100")
+
+```
+
+
+```{r set specifications for sae}
+# /!\ NSM: in the future, look to add race/ethnicity and industry of workers
+sae_controls_simple <- 
+  paste0("incpov_r", incpov_ranges_for_estimation, "_est")
+
+sae_controls_mid <- 
+  c(sae_controls_simple,
+    paste0(c("f_lesshs", "m_lesshs", "f_hsgrad", "m_hsgrad", "f_somecoll", "m_somecoll", # This is omitting `f_coll` and `m_coll`
+             "pctMale_noSp", "pctFemale_noSp"), # This is omitting `pctMarried`
+           "_est"))
+
+sae_controls_added <- 
+  c(sae_controls_mid,
+    paste0(c("employrate_m", "employrate_f", "lfrate_m", "lfrate_f"),
+           "_est"))
+
+sae_controls_added_2534 <- 
+  c(sae_controls_mid,
+    paste0(c("employrate_m_a2534", "employrate_f_a2534", "lfrate_m_a2534", "lfrate_f_a2534"),
+           "_est"))
+```
+
+```{r subset data for the SAE}
+acs1_child05_sae <- 
+  acs1_child[between(AGEP, 0, 5)]
+
+acs1_child612_sae <- 
+  acs1_child[between(AGEP, 6, 12)]
+
+acs5tract_sae <- acs5tract
+
+# If a specific county has been specified, subset data to it
+if (exists("my_county_fip")) {
+  acs1_child05_sae <- 
+    acs1_child05_sae %>% 
+    .[j = in_my_geo := 1*(PUMA %in% geo_crosswalk[COUNTYFIP == my_county_fip]$PUMA)] %>% 
+    .[in_my_geo == 1]
+  
+  acs5tract_sae <- 
+    acs5tract_sae %>% 
+    .[COUNTYFIP == my_county_fip]
+}
+
+```
+
+```{r implement small acs5year cleanup}
+# /!\ Consider moving this to the `1d` script
+# Replace NAs of 25-34 year old employment stats with equivalent statistics across ages
+a2534_vars <- str_subset(cn(acs5tract_sae), "2534")
+acs5tract_sae[j = c(a2534_vars) := 
+                 lapply(a2534_vars, function(x) ifelse(is.na(get(x)), get(str_replace(x, "_a2534", "")), get(x)))]
+```
+
+```{r bring in base year population estimates to replace those in the acs 5-year}
+# Select specific age ranges of interest
+pop_by_age_base <- 
+  pop_by_age %>% 
+  filter(year == base_year) %>% 
+  # Rename population values to avoid conflict with equivalent ACS5 counts, which
+  # are for the prior 5 year period, not estimated for the base year as these are
+  select(GEOID, 
+          age_0to5_count_base =  age_0to5_count, 
+         age_6to12_count_base = age_6to12_count)
+
+# Merge to the ACS5-year data
+acs5tract_sae_counts <- 
+  acs5tract_sae %>% 
+  merge(pop_by_age_base,
+        by = "GEOID",
+        all.x = TRUE) %>% 
+  # /!\ These are placeholder values, which of course improperly assume that the
+  # base-year estimates are perfectly precise. This must be replaced when possible.
+  mutate( age_0to5_count_se_base = 0,
+         age_6to12_count_se_base = 0)
+
+# Compare ACS and 2020 counts
+ggplot(acs5tract_sae_counts,
+       aes(x = age_0to5_count,
+           y = age_0to5_count_base)) +
+  geom_point() + 
+  geom_45(color = "red") +
+  labs(title = "Comparison of Tract-level Counts of Children Aged 0-5",
+       x = "ACS 5-Year",
+       y = glue("Estimate for Base Year ({base_year})")) +
+  theme_minimal()
+  # /!\ There are some highly off-axis values. Check these out, and/or convert to
+  # ggplotly to allow for inspection
+```
+
+```{r establish function to run SAE method}
+run_sae_combos_bycontrols <- function(vul_vars, sae_input_data, my_controls) {
+  
+  ### Determine which age count variables should used
+  # Note: there are other ways to check against the second argument, such as
+  # deparse(substitute(sae_input_data)) to get the character input from the
+  # function call, but that approach wouldn't work from the parallelized 
+  # function calls
+  if (identical(sae_input_data, acs1_child05_sae)) {
+    pop_n_var    <- "age_0to5_count_base"    # "age_0to5_count" would be the alternative, from ACS5 data
+    pop_n_se_var <- "age_0to5_count_se_base" # "age_0to5_se"    would be the alternative, from ACS5 data
+  } else if (identical(sae_input_data, acs1_child612_sae)) {
+    pop_n_var    <- "age_6to12_count_base"    # "age_6to12_count" would be the alternative, from ACS5 data
+    pop_n_se_var <- "age_6to12_count_se_base" # "age_6to12_se"    would be the alternative, from ACS5 data
+  }
+  #browser() 
+  run_sae_combos(vul_vars       = vul_vars,
+                 sae_input_data = sae_input_data,
+                 sae_controls   = my_controls,
+                 aux_data       = acs5tract_sae_counts,
+                 aux_n_var      = pop_n_var,
+                 aux_n_se_var   = pop_n_se_var,
+                 verbose = TRUE)
+}
+```
+
+
+```{r run SAE method}
+if (rerun_sae) {
+ 
+  parallelize_sae <- TRUE
+  
+  # These runs may be parallelized because they are independent, and each is 
+  # very slow
+  if (parallelize_sae) {
+    
+    runlist <- 
+      list(sae_results_incpov_simple_05     = list(incpov_spec_field,      acs1_child05_sae,  sae_controls_simple),
+           sae_results_incpov_simple_612    = list(incpov_spec_field,      acs1_child612_sae, sae_controls_simple),
+           sae_results_incpov_ctrls2534_05  = list(incpov_spec_field,      acs1_child05_sae,  sae_controls_added_2534),
+           sae_results_incpov_ctrls2534_612 = list(incpov_spec_field,      acs1_child612_sae, sae_controls_added_2534),
+           sae_results_ccdf_wk_sp_05        = list("work_spouse_status",   acs1_child05_sae,  sae_controls_added_2534),
+           sae_results_ccdf_wk_pov_05       = list(work_incpov_spec_field, acs1_child05_sae,  sae_controls_added_2534),
+           sae_results_ccdf_wk_pov_612      = list(work_incpov_spec_field, acs1_child612_sae, sae_controls_added_2534))
+    
+    # Code to recruit (almost) as many core processors as are available (but not more than we need)
+    cores <- detectCores() - 1 # not to overload your computer
+    cores <- min(cores, length(runlist))
+    cl <- makeCluster(cores) 
+    registerDoParallel(cl)
+    
+    sae_results <- foreach (r = seq_along(runlist)) %dopar% {
+      source("settings--main.R")
+
+      run_sae_combos_bycontrols(runlist[[r]][[1]], 
+                                runlist[[r]][[2]],
+                                runlist[[r]][[3]])
+    }
+    stopCluster(cl)
+    
+    # Separate parallelized results to conform to downstream code
+    # /!\ Note: arguably, it'd be wise to update the downstream code to conform
+    # to the list format output by parallelization
+    for (r in seq_along(sae_results)) {
+      assign(names(runlist)[r],
+             sae_results[[r]])
+    }
+    
+  } else {
+    sae_results_incpov_simple_05     <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child05_sae,  sae_controls_simple)
+    sae_results_incpov_simple_612    <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child612_sae, sae_controls_simple)
+    sae_results_incpov_ctrls2534_05  <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child05_sae,  sae_controls_added_2534)
+    sae_results_incpov_ctrls2534_612 <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child612_sae, sae_controls_added_2534)
+    sae_results_ccdf_wk_sp_05        <- run_sae_combos_bycontrols("work_spouse_status",   acs1_child05_sae,  sae_controls_added_2534)
+    sae_results_ccdf_wk_pov_05       <- run_sae_combos_bycontrols(work_incpov_spec_field, acs1_child05_sae,  sae_controls_added_2534)
+    sae_results_ccdf_wk_pov_12       <- run_sae_combos_bycontrols(work_incpov_spec_field, acs1_child612_sae, sae_controls_added_2534)
+  }
+  
+  specs <- c("incpov_simple_05", 
+             "incpov_simple_612",
+             "incpov_ctrls2534_05",
+             "incpov_ctrls2534_612",
+             "ccdf_wk_sp_05",
+             "ccdf_wk_pov_05",
+             "ccdf_wk_pov_612") 
+}
+```
+
+```{r save SAE ingredients}
+
+if (rerun_sae) {
+  # Organize contents
+  sae_aux_data_acs5 <- acs5tract_sae
+  sae_controls_list <- list(sae_controls_simple,
+                            sae_controls_added_2534)
+  results <- paste0("sae_results_", specs)
+  
+  # Save the bundle of objects
+  save(list = c(results, "specs", "incpov_ref_value", "sae_controls_list", "sae_aux_data_acs5"),
+       file = glue("{output_path}sae_sensitivity_estimates_{my_output_tag}.Rda"))
+  
+} else {
+  load(file = glue("{output_path}sae_sensitivity_estimates_{my_output_tag}.Rda")) 
+}
+```
+
+```{r extract estimate tables from sae output}
+for (spec in specs) {
+  stem <- glue("sae_results_{spec}")
+  assign(glue("{stem}_out"),
+         get(stem)[["sae_out"]])
+}
+```
+
+### Compare Direct versus FH Output Estimates
+
+As a reality check, confirm that a single "direct" estimate applies to all tracts within each given PUMA. The result should be that there are all "0" numbers of duplicates. 
+
+```{r check that all tracts in each puma have the same direct estimate}
+sae_results_incpov_simple_05_out %>% 
+  group_by(vc_value, GEOID, PUMA) %>% 
+  summarize(ndups = n_distinct(share_direct) - 1) %>% 
+  with(table(ndups))
+```
+
+Here, we are looking to see generally how the "Fay-Herriot" method results, which are detailed down to the tract level, compared to the direct estimates, which are carried down from PUMA-level ACS 1-year estimates.
+
+```{r compare direct vs FH output - first spec}
+sae_results_incpov_simple_05[["comp_viz"]] +
+  labs(x = "Direct Share Estimate",
+       y = "Fay-Herriott Share Estimates (Simple Spec)") +
+  theme(legend.position = "none")
+```
+
+```{r compare direct vs FH output - second spec}
+sae_results_incpov_ctrls2534_05[["comp_viz"]] +
+  labs(x = "Direct Share Estimate",
+       y = "Fay-Herriott Share Estimates (Full Spec)") +
+  theme(legend.position = "none")
+```
+
+```{r examine share of reliance on direct versus model}
+# Check our understanding of the fh() weight calculation
+display_lambda_wgt <- 
+  sae_results_incpov_ctrls2534_05$sae_out %>% 
+  mutate(lambda_wgt_direct  = share_model_se^2 / (share_model_se^2 + share_direct_se^2),
+         implied_wgt_direct = (share_fh - share_model) / (share_direct - share_model))
+# %>% 
+#   merge(geo_crosswalk[j = .(GEOID, aux_geo_label)] %>% unique(),
+#         by = "GEOID", 
+#         all.x = TRUE)
+
+stopifnot(all(display_lambda_wgt[j = quantile(round(lambda_wgt_direct, 5) - round(implied_wgt_direct, 5),
+                                              na.rm = TRUE) == 0]))
+
+display_lambda_wgt_pov <- 
+  display_lambda_wgt %>% 
+  filter(vc_value == incpov_ref_value)
+
+ggplot(display_lambda_wgt_pov,
+       aes(x = reorder(GEOID, lambda_wgt_direct),
+           y = lambda_wgt_direct) # , color = aux_geo_label == "Cook") ... this would allow for coloring a given focal region
+       ) + 
+  geom_point() +
+  labs(title = case_when(my_output_tag == "IL" ~ "For Share Below Poverty, Weight on 'Direct', PUMA-Derived Estimates\nis Typically Zero",
+                         TRUE ~ ""),
+       x = "Tracts, Ordered by Lambda",
+       y = "% Weight Placed on Direct Estimate") +
+  scale_y_continuous(labels = percent,
+                     limits = c(0, 1.0)) +
+  # scale_color_manual(breaks = c(FALSE, TRUE),
+  #                    values = c("gray", "lightblue"),
+  #                    labels = c("Non-Cook", "Cook")) +
+  theme(axis.text.x = element_blank())
+
+ggplot(display_lambda_wgt_pov,
+       aes(x = reorder(GEOID, share_direct))) +
+  geom_point(aes(y = share_direct),
+             color = "lightblue") +
+  geom_point(aes(y = share_model),
+             color = "orange")
+
+ggplot(display_lambda_wgt,
+       aes(x = share_direct,
+           y = share_model)) +
+  geom_point(alpha = 0.1) +
+  geom_45(color = "blue") +
+  facet_wrap(~ vc_value) +
+  theme_minimal()
+  
+```
+
+How much do discrepancies between model and direct estimates exist across PUMAs?
+
+```{r}
+plot_by_ordered_puma <- 
+  sae_results_incpov_ctrls2534_05_out %>% 
+  .[j = rank := rank(share_direct, ties.method = "random"), 
+    by = vc_value] %>% 
+  .[j = puma_by_rank := factor(PUMA, levels = unique(PUMA[order(rank)])),
+    by = vc_value]
+
+ggplot(plot_by_ordered_puma,
+       aes(x = puma_by_rank)) +
+    geom_point(aes(y = share_model),
+               color = "red",
+               alpha = 0.3) +
+    geom_point(aes(y = share_direct),
+               color = "blue",
+               alpha = 0.3) +
+    facet_wrap(~ vc_value,
+               scales = "free") +
+    theme_minimal()  +
+    theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = 
+         str_wrap(case_when(my_output_tag == "Cook2022" ~ "Some PUMAs have Direct Estimates that Lie Significantly Outside of the Range of Model Estimates")))
+```
+
+Identify which PUMAs have the greatest discrepancies between direct and model estimates, especially for lower levels of income.
+
+```{r}
+sae_results_incpov_ctrls2534_05_out %>% 
+  group_by(vc_value, PUMA) %>% 
+  summarize(model_vs_direct_var = (sum((share_model - share_direct)^2)/n()) %>% round(3),
+            model_vs_direct_above = mean(share_model > share_direct) %>% percent(),
+            model_vs_direct_oneside = mean((share_model > share_direct)*(median(share_model) > share_direct)) %>% percent()) %>% 
+              # This checks for % of tracts on the same side as the median) 
+  filter(vc_value == "0%-50%") %>% 
+  datatable()
+
+```
+
+```{r examine differences in direct and model by geography}
+if (my_output_tag == "Cook2022") {
+  crosswalk_cpt <- 
+    read.csv(glue("H:/DFSS Community Assessment/Community Assessment/2020-2021 project year/program eligibility estimation/input/PUMA_Tract_CCA_equivalency2010.csv")) %>% 
+    data.table() %>% 
+    rename(COUNTYFIP = county, 
+           PUMA      = puma,
+           CCA       = cca,
+           TRACTFIP  = tract) %>% 
+    mutate(TRACTFIP = str_pad(TRACTFIP, width = 6, side = "left", pad = "0"),
+           GEOID = paste0("17031", TRACTFIP))
+
+  aug_sae_out <- 
+    sae_results_incpov_ctrls2534_05_out %>% 
+    merge(crosswalk_cpt %>% select(GEOID, CCA) %>% unique(),
+          by = "GEOID",
+          all.x = TRUE) 
+  
+  # Plot by PUMA on x-axis
+  ggplot(aug_sae_out %>% .[order(share_direct)] %>% .[j = rank := 1:.N] %>% .[!is.na(CCA)],
+         aes(x = factor(PUMA))) +
+    geom_point(data = aug_sae_out[CCA != 54],
+               aes(y = share_model),
+               color = "red",
+               alpha = 0.3) + # CCA == 54 is Riverdale
+    geom_point(data = aug_sae_out[CCA == 54],
+               aes(y = share_model),
+               color = "black") + # CCA == 54 is Riverdale
+    geom_point(aes(y = share_direct),
+               color = "blue",
+               alpha = 0.3) +
+    facet_wrap(~ vc_value) +
+    # scale_color_manual(breaks = c(F, T),
+    #                    values = c("red", "black")) +
+    theme_minimal()  +
+    theme(axis.text.x = element_text(angle = 90))
+  
+}
+```
+
+
+### Examine the Estimated Composition of Tracts
+
+```{r examine SAE share composition by tract -- FH estimates}
+plot_sae_comp_by_tract <- function(sae_est, base_cat, title) {
+  
+  tract_order <- sae_est[vc_value == base_cat] %>% .[order(-share_fh_trunc)] %>%  .[j = rank := 1:.N]
+  
+  ggplot(sae_est %>% merge(tract_order[, .(GEOID, rank)], by = "GEOID"),
+         aes(x = reorder(GEOID, rank),
+             y = share_fh_trunc,
+             color = vc_value)) +
+    geom_point() +
+    geom_hline(yintercept = 0) +
+    scale_y_continuous(labels = percent) +
+    scale_color_discrete(name = "Vulnerability Category") +
+    labs(title = title,
+         x = glue("Tracts, in order of pop'n share in {base_cat}"),
+         y = "SAE estimated share") +
+    theme(axis.text.x = element_blank()) 
+}
+```
+
+<!-- Below, the smoothness of the "simple" method suggests ... -->
+
+```{r}
+# /!\ Consider ways to display them in a grid.
+# /!\ Consider how to loop or sapply this, to be more compact
+plot_sae_comp_by_tract(sae_results_incpov_simple_05_out,  
+                       base_cat = incpov_ref_value,
+                       title = "Vulnerability Cat Composition by Tract -- Simple Spec")
+plot_sae_comp_by_tract(sae_results_incpov_ctrls2534_05_out,   
+                       base_cat = incpov_ref_value, 
+                       title = "Vulnerability Cat Composition by Tract -- Added Controls (2534)")
+
+plot_sae_comp_by_tract(sae_results_ccdf_wk_sp_05_out,   
+                       base_cat = "WorkElig_SpousePresent", 
+                       title = "Vulnerability Cat Composition by Tract -- Work Eligibility by Presence of Spouse")
+
+plot_sae_comp_by_tract(sae_results_ccdf_wk_pov_05_out,   
+                       base_cat = str_subset(sae_results_ccdf_wk_pov_05_out$vc_value, "^WorkElig_0%") %>% unique(), 
+                       title = "Vulnerability Cat Composition by Tract -- Work Eligibility by Income-to-Pov")
+```
+
+### Examine Aggregate Comparison Plots
+
+Because PUMA data are very thin, we will not adjust our tract-level estimates to match their totals. Instead, we will just compare them to get a rough sense of correspondence.
+
+However, it seems that the addition of detailed controls has improved alignment of the estimated measures with the ACS.
+
+```{r compare sums of estimates to PUMA-level with observed PUMA values}
+# for (spec in specs) {
+#   get(glue("sae_results_{spec}"))[["agg_comp"]]$agg_comp_plot %>% 
+#     print()
+# }
+
+sae_results_incpov_ctrls2534_05[["agg_comp_fh"]]$agg_comp_plot +
+  labs(title = 
+         case_when(
+           my_output_tag == "IL" ~ "For Poverty, SAE Methods for 0-5 Return Estimates Broadly Consistent with\nObserved PUMA-Level Counts",
+           my_output_tag == "Cook2022" ~ "For Poverty, SAE Methods for 0-5 Are Broadly Consistent with\nbserved PUMA-level Counts",
+           TRUE ~ ""),
+       x = "Observed ACS 1-year Counts") 
+
+sae_results_incpov_ctrls2534_05[["agg_comp_model"]]$agg_comp_plot +
+  labs(title = 
+         case_when(
+           my_output_tag == "IL" ~ "For Poverty, SAE Methods for 0-5 Return Estimates Broadly Consistent with\nObserved PUMA-Level Counts",
+           my_output_tag == "Cook2022" ~ "For Poverty, SAE Methods for 0-5 Are Broadly Consistent with\nbserved PUMA-level Counts",
+           TRUE ~ ""),
+       x = "Observed ACS 1-year Counts") 
+
+
+sae_results_incpov_ctrls2534_612[["agg_comp_fh"]]$agg_comp_plot +
+  labs(title = 
+         case_when(
+           my_output_tag == "IL" ~ "For Poverty, SAE Methods Return Estimates Broadly Consistent with\nObserved PUMA-Level Counts",
+           my_output_tag == "Cook2022" ~ "For Poverty, SAE Methods for 6-12 Are Broadly Consistent with\nbserved PUMA-level Counts",
+           TRUE ~ ""),
+       x = "Observed ACS 1-year Counts") 
+
+
+sae_results_incpov_ctrls2534_612[["agg_comp_model"]]$agg_comp_plot +
+  labs(title = 
+         case_when(
+           my_output_tag == "IL" ~ "For Poverty, SAE Methods Return Estimates Broadly Consistent with\nObserved PUMA-Level Counts",
+           my_output_tag == "Cook2022" ~ "For Poverty, SAE Methods for 6-12 Are Broadly Consistent with\nbserved PUMA-level Counts",
+           TRUE ~ ""),
+       x = "Observed ACS 1-year Counts") 
+
+# Seems reasonably close especially for thicker--i.e. non 200-300-- groups.
+# However, it's (unsurprisingly) shading lower for poverty, which I think reflects
+# shrinking down to lower levels. Will want to see if that's addressed with 
+# better control sets.
+
+sae_results_ccdf_wk_pov_05[["agg_comp_fh"]]$agg_comp_plot +
+  labs(title = 
+         case_when(
+           my_output_tag == "IL" ~ "For (Work Elig x Poverty), SAE Estimates are Largely Disconnected",
+           my_output_tag == "Cook2022" ~ "For Work Status/Income, SAE Methods for 0-5 Are Broadly Consistent with\nbserved PUMA-level Counts",
+           TRUE ~ ""),
+       x = "Observed ACS 1-year Counts") +
+  theme(strip.text = element_text(size = 8),
+        axis.text = element_text(size = 8))
+
+sae_results_ccdf_wk_pov_05[["agg_comp_model"]]$agg_comp_plot +
+  labs(title = 
+         case_when(
+           my_output_tag == "IL" ~ "For (Work Elig x Poverty), SAE Estimates are Largely Disconnected",
+           my_output_tag == "Cook2022" ~ "For Work Status/Income, SAE Methods for 0-5 Are Broadly Consistent with\nbserved PUMA-level Counts",
+           TRUE ~ ""),
+       x = "Observed ACS 1-year Counts") +
+  theme(strip.text = element_text(size = 8),
+        axis.text = element_text(size = 8))
+
+
+sae_results_ccdf_wk_pov_612[["agg_comp_fh"]]$agg_comp_plot +
+  labs(title = 
+         case_when(
+           my_output_tag == "IL" ~ "For (Work Elig x Poverty), SAE Estimates are Largely Disconnected",
+           my_output_tag == "Cook2022" ~ "For Work Status/Income, SAE Methods for 6-12 Are Broadly Consistent with\nbserved PUMA-level Counts",
+           TRUE ~ ""),
+       x = "Observed ACS 1-year Counts") +
+  theme(strip.text = element_text(size = 8),
+        axis.text = element_text(size = 8))
+
+sae_results_ccdf_wk_pov_612[["agg_comp_model"]]$agg_comp_plot +
+  labs(title = 
+         case_when(
+           my_output_tag == "IL" ~ "For (Work Elig x Poverty), SAE Estimates are Largely Disconnected",
+           my_output_tag == "Cook2022" ~ "For Work Status/Income, SAE Methods for 6-12 Are Broadly Consistent with\nbserved PUMA-level Counts",
+           TRUE ~ ""),
+       x = "Observed ACS 1-year Counts") +
+  theme(strip.text = element_text(size = 8),
+        axis.text = element_text(size = 8))
+
+```
+
+```{r compare correlations between puma-level observed and predicted values - fay herriot, eval = developer_mode}
+cbind(sae_results_incpov_simple_05[["agg_comp_fh"]]$agg_comp_cor     %>% mutate(simple_05     = round(V1, 3)) %>% select(-V1),
+      sae_results_incpov_simple_612[["agg_comp_fh"]]$agg_comp_cor    %>% mutate(simple_612    = round(V1, 3)) %>% select(simple_612),
+      sae_results_incpov_ctrls2534_05[["agg_comp_fh"]]$agg_comp_cor  %>% mutate(ctrls2534_05  = round(V1, 3)) %>% select(ctrls2534_05),
+      sae_results_incpov_ctrls2534_612[["agg_comp_fh"]]$agg_comp_cor %>% mutate(ctrls2534_612 = round(V1, 3)) %>% select(ctrls2534_612)) %>% 
+  kable(caption = "Correlation of PUMA-level Observed and SAE Values from the Fay-Herriot Method")
+```
+
+```{r compare correlations between puma-level observed and predicted values - model, eval = developer_mode}
+cbind(sae_results_incpov_simple_05[["agg_comp_model"]]$agg_comp_cor     %>% mutate(simple_05     = round(V1, 3)) %>% select(-V1),
+      sae_results_incpov_simple_612[["agg_comp_model"]]$agg_comp_cor    %>% mutate(simple_612    = round(V1, 3)) %>% select(simple_612),
+      sae_results_incpov_ctrls2534_05[["agg_comp_model"]]$agg_comp_cor  %>% mutate(ctrls2534_05  = round(V1, 3)) %>% select(ctrls2534_05),
+      sae_results_incpov_ctrls2534_612[["agg_comp_model"]]$agg_comp_cor %>% mutate(ctrls2534_612 = round(V1, 3)) %>% select(ctrls2534_612)) %>% 
+  kable(caption = "Correlation of PUMA-level Observed and SAE Values from the Model-Only Method")
+  # Note that these estimates will naturally be below those of the FH method, which blends the 
+  # model estimates with the observe SAE values themselves
+  # But also, in a sense, this is a cleaner perspective on the results of the model
+```
+
+### Compare Tract-Level SAE Estimates to the ACS 5-year
+
+<!-- From direct examination of estimates, we had found cases where SAE estimates of <100% FPL were much higher than the ACS 5-year estimates for tracts within certain CCAs. First, we want to systematically investigate the extent of these outliers. -->
+
+```{r compare SAE estimate to acs5}
+compare_sae_lt100fpl <- function(sae_spec, title, xlab, ylab) {
+  
+  comp_data <-
+    sae_spec[vc_value %in% c("0%-50%", "50%-100%")] %>% 
+    mutate(incpov_r0to100_est = incpov_r0to50_est + incpov_r50to100_est) %>% 
+    select(GEOID, share_fh_trunc, incpov_r0to100_est) %>% 
+    group_by(GEOID) %>% 
+    # Sum across 0-50% and 50-100% FPL, within tract
+    summarize(share_fh_trunc = sum(share_fh_trunc),
+              incpov_r0to100_est = unique(incpov_r0to100_est)) %>% 
+    mutate(label = paste0("GEOID: ", GEOID))
+  
+  rho <- with(comp_data, cor(share_fh_trunc, incpov_r0to100_est, use = "pairwise")) %>% round(2)
+  
+  # If tracts within a specific auxiliary geography are of interest, merge that
+  # information in and style the plotted points
+  if ("my_aux_geo_focal_val" %in% objects()) {
+    comp_data <- 
+      comp_data %>% 
+      merge(geo_crosswalk[j = .(GEOID, aux_geo_label)] %>% unique(),
+          by = "GEOID",
+          all.x = TRUE)
+    plot_base <- 
+      ggplot(comp_data,
+             aes(x = incpov_r0to100_est,
+                 y = share_fh_trunc,
+                 #group = label,
+                 color = aux_geo_label == my_aux_geo_focal_val)) + 
+      scale_color_manual(breaks = c(FALSE, TRUE),
+                         values = c("gray", "blue"),
+                         labels = c(paste0("Non-", my_aux_geo_focal_val), 
+                                    my_aux_geo_focal_val))
+  } else {
+    plot_base <- 
+      ggplot(comp_data,
+             aes(x = incpov_r0to100_est,
+                 y = share_fh_trunc)) #,#group = label
+  }
+  
+  # Generate the plot
+  sae_lt100fpl_comp_plot <- 
+    plot_base +
+    geom_point(alpha = 0.1) +
+    geom_45(color = "red") +
+    geom_smooth(color = "blue") + 
+    scale_x_continuous(labels = percent) +
+    scale_y_continuous(labels = percent) +
+    labs(title = title,
+         x = xlab,
+         y = ylab) +
+    annotate("text", x = 0.1, 
+             y = 0.6, 
+             label = glue("rho = {rho}")) +
+    theme_minimal() +
+    theme(legend.position = "none",
+          title = element_text(size = 10))
+  
+  sae_lt100fpl_comp_plot
+  
+  #ggplotly(sae_lt100fpl_comp_plot, tooltip = "group")
+}
+```
+
+<!-- Next, we want to understand the source of these idiosyncracies. Direct inspection suggested that our first handful of outlier tracts had very low poverty but also very low rates of labor force participation and employment.  -->
+
+```{r build plot of comparisons}
+compare_sae_lt100fpl(
+  sae_results_incpov_simple_05$sae_out,
+  title = case_when(my_output_tag == "IL" ~ "Tract-Level SAE Poverty Estimates Generally Correspond to ACS 5-year Estimates",
+                    my_output_tag == "Cook2022" ~ "Simple Spec Tract-Level SAE Poverty Estimates for 0-5 Year Olds\nRoughly Corresponds to ACS 5-year Estimates, Although Is Clearly\nAbove the Past at the Low End and Slightly Attenuated at the High",
+                    TRUE ~ ""),
+  xlab = "Observed ACS 5-year Poverty Rate",
+  ylab = "SAE Estimate of Poverty Rate"
+) +
+  theme_minimal()
+
+compare_sae_lt100fpl(
+  sae_results_incpov_ctrls2534_05$sae_out,
+  title = case_when(my_output_tag == "IL" ~ "Tract-Level SAE Poverty Estimates Generally Correspond to ACS 5-year Estimates",
+                    my_output_tag == "Cook2022" ~ "Rich-Spec Tract-Level SAE Poverty Estimates for 0-5 Year Olds\nRoughly Corresponds to ACS 5-year Estimates, Although Is Clearly\nAbove the Past at the Low End and Slightly Attenuated at the High",
+                    TRUE ~ ""),
+  xlab = "Observed ACS 5-year Poverty Rate",
+  ylab = "SAE Estimate of Poverty Rate"
+) +
+  theme_minimal()
+
+compare_sae_lt100fpl(
+  sae_results_incpov_ctrls2534_612$sae_out,
+  title = case_when(my_output_tag == "IL" ~ "Tract-Level SAE Poverty Estimates Generally Correspond to ACS 5-year Estimates",
+                    my_output_tag == "Cook2022" ~ "Rich-Spec Tract-Level SAE Poverty Estimates for 6-12 Year Olds\nRoughly Corresponds to ACS 5-year Estimates, Although Is Clearly\nAbove the Past at the Low End and Slightly Attenuated at the High",
+                    TRUE ~ ""),
+  xlab = "Observed ACS 5-year Poverty Rate",
+  ylab = "SAE Estimate of Poverty Rate") +
+  theme_minimal()
+```
+
+```{r investigate select outliers, eval = developer_mode}
+
+sae_results_incpov_ctrls2534_05$sae_out %>%
+  .[GEOID %in% c("17031280900"),
+    .(GEOID, vc_value, share_direct, share_fh)] %>% 
+  .[order(GEOID, vc_value)]
+```
+
+### Adjust SAE Estimates to Match PUMA-level Aggregates
+
+```{r eval = FALSE}
+# This is not yet implemented, because many of the PUMA-level counts, especially
+# for the ccdf specifications, are too thin to match
+for (spec in specs) {
+  
+  my_spec_name <- glue("sae_results_{spec}")
+  my_spec <- get(my_spec_name)
+
+  my_spec_infl_puma_fh <- 
+    my_spec$agg_comp_fh$agg_comp_data %>% 
+    mutate(infl_factor_fh = obs_count_puma / sae_count_puma) %>% 
+    select(PUMA, vc_value = vulnerability_cat, infl_factor_fh)
+  
+  my_spec_infl_puma_model <- 
+    my_spec$agg_comp_model$agg_comp_data %>% 
+    mutate(infl_factor_model = obs_count_puma / sae_count_puma) %>% 
+    select(PUMA, vc_value = vulnerability_cat, infl_factor_model)
+  
+  
+  my_spec$sae_out <- 
+    my_spec$sae_out %>% 
+    merge(my_spec_infl_puma_fh,    by = c("PUMA", "vc_value")) %>% 
+    merge(my_spec_infl_puma_model, by = c("PUMA", "vc_value")) %>% 
+    # Use the inflation factor on the counts for both FH and model estimates
+    mutate(vc_fh_count_trunc_infl       = infl_factor_fh*vc_fh_count_trunc,
+           vc_fh_count_se_trunc_infl    = infl_factor_fh*vc_fh_count_se_trunc,
+           vc_model_count_trunc_infl    = infl_factor_model*vc_model_count_trunc,
+           vc_model_count_se_trunc_infl = infl_factor_model*vc_model_count_se_trunc) %>% 
+    # Recalculate the corresponding shares
+    group_by(GEOID) %>% 
+    mutate(share_fh_trunc_infl    = vc_fh_count_trunc_infl    / sum(vc_fh_count_trunc_infl),
+           share_model_trunc_infl = vc_model_count_trunc_infl / sum(vc_model_count_trunc_infl),
+           # Calculate ratios between the prior share calculation and the new one. 
+           # We use this to also inflate the accompanying SEs.
+           # /!\ This seems like the right approach, but deserves more formality
+           share_fh_trunc_infl_ratio    = share_fh_trunc_infl    / share_fh_trunc,
+           share_model_trunc_infl_ratio = share_model_trunc_infl / share_model_trunc,
+           share_fh_se_trunc_infl    = share_fh_se_trunc    * share_fh_trunc_infl_ratio,
+           share_model_se_trunc_infl = share_model_se_trunc * share_model_trunc_infl_ratio)  
+  assign(my_spec_name,
+         my_spec)
+}
+
+save(list = c(results, "specs", "incpov_ref_value", "sae_controls_list", "sae_aux_data_acs5"),
+       file = glue("{output_path}sae_sensitivity_estimates_final_{my_output_tag}.Rda"))
+
+# Check inflation worked
+if (FALSE) {
+  my_spec$sae_out %>% 
+    group_by(PUMA, vc_value) %>% 
+    summarize(fh_sum    = sum(vc_fh_count_trunc_infl),
+              model_sum = sum(vc_fh_count_trunc_infl)) %>% 
+    head()
+  head(my_spec$agg_comp_fh$agg_comp_data %>% select(PUMA, vulnerability_cat, obs_count_puma))
+  head(my_spec$agg_comp_model$agg_comp_data %>% select(PUMA, vulnerability_cat, obs_count_puma))
+}
+
+```
+
+
+### Map Components of the SAE Estimates
+
+```{r set up comparisons of data}
+pov_p <- 
+  lapply(c("05", "612"),
+         function(a) {
+           get(glue("sae_results_incpov_ctrls2534_{a}"))$sae_out %>% 
+             filter(vc_value %in% c("0%-50%", "50%-100%")) %>% 
+             group_by(GEOID) %>% 
+             summarize(acs1_pov       = sum(share_direct),
+                       sae_pov_fh     = sum(share_fh_trunc),
+                       sae_pov_model  = sum(share_model_trunc))
+         }
+  )
+
+tractShp_pov <- 
+  tractShp %>% 
+  left_join(pov_p[[1]] %>% rename(acs1_pov_05      = acs1_pov,
+                                  sae_pov_fh_05    = sae_pov_fh,
+                                  sae_pov_model_05 = sae_pov_model),
+            by = "GEOID") %>% 
+  left_join(pov_p[[2]] %>% rename(acs1_pov_612      = acs1_pov,
+                                  sae_pov_fh_612    = sae_pov_fh,
+                                  sae_pov_model_612 = sae_pov_model),
+            by = "GEOID") %>% 
+  left_join(acs5tract %>% select(GEOID, acs5_pov = incpov_r0to100_est),
+            by = "GEOID")
+
+```
+
+```{r set color scale}
+map_sae_components <- function(dt, fill_field, field_label, val_limits, save_label) {
+  
+  pumas_to_keep <-
+    geo_crosswalk[GEOID %in% dt$GEOID] %>% 
+    .[["PUMA"]] %>% 
+    unique()
+  
+  pumaShp_sub <-
+    pumaShp %>% 
+    filter(as.integer(PUMACE10) %in% pumas_to_keep)
+  
+  my_plot <- 
+    ggplot() +
+    geom_sf(data = dt,
+            aes_string(fill = fill_field),
+            linewidth = 0.025,
+            color = "black") +
+    geom_sf(data = pumaShp_sub,
+            color = "red",
+            linewidth = 0.75,
+            fill = NA) +
+    scale_fill_viridis_c(name   = field_label,
+                         limits = val_limits,
+                         option = "viridis", #"plasma", # 
+                         trans  = "identity",
+                         labels = percent,
+                         alpha  = .4) +
+    theme_void() +
+    theme(legend.position = "none")
+  
+  ggsave(plot = my_plot,
+         filename = glue("{output_path}Map of Base Year {save_label}_{my_output_tag}.png"),
+         #width = 7,
+         height = 7,
+         units = "in")
+  
+  print(my_plot)
+}
+```
+
+
+```{r set value scales}
+limits_05  <- range(with(tractShp_pov, c(acs1_pov_05)),  # sae_pov_fh_05, sae_pov_model_05
+                    na.rm = TRUE)
+limits_612 <- range(with(tractShp_pov, c(acs1_pov_612)), # sae_pov_fh_612, sae_pov_model_612
+                    na.rm = TRUE)
+```
+
+```{r generate maps}
+
+my_dt <- tractShp_pov %>% filter(str_detect(GEOID, "17031"))
+
+map_sae_components(my_dt, "acs1_pov_05",      "", val_limits = limits_05, save_label = "Poverty (ACS1), age 0-5")
+map_sae_components(my_dt, "acs5_pov",         "", val_limits = limits_05, save_label = "Poverty (ACS5), age 0-5")
+map_sae_components(my_dt, "sae_pov_model_05", "", val_limits = limits_05, save_label = "Poverty (SAE), age 0-5")
+
+```
+

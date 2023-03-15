@@ -1,0 +1,997 @@
+
+<!-- This .Rmd file is set up to run either independently by checking for 
+the presence of necessary objects in the global environment and running 
+related scripts if not, or also as a child to the "main-doc". For that latter
+reason, comments and headings that are not relevant to a final report to
+pubic audiences are suppressed or moved to code chunks that can optionally be 
+`echo`ed as desired. -->
+
+```{r}
+# run scripts for necessary packages and objects as necessary
+if (!"my_state_abbr" %in% objects()) source("settings--profile.R", echo = FALSE)
+if (!"chHexs"        %in% objects()) source("settings--main.R", echo = FALSE)
+if (!"bin_age"       %in% objects()) source("method--general-helper-functions.R", echo = FALSE)
+if (!"calc_cps_transitions" %in% objects()) source_rmd("method--nowcasting-functions.Rmd", echo = FALSE)
+```
+
+```{r load data for now-casting run}
+# Load prepped data
+for (f in c("geo", "acs1", "cps", "acs5", "pop")) {
+  # Note: the cps data is national, and thus doesn't depend on locality or 
+  # sensitivity, thus it's neither saved nor loaded with a particular output tag
+  if (f == "cps") {
+    load(file = glue("{output_path}{f}_data.Rda"))
+  } else {
+    load(file = glue("{output_path}{f}_data_{my_output_tag}.Rda"))
+  }
+}
+
+# Load SAE estimates
+# load(file = glue("{output_path}sae_sensitivity_estimates_final_{my_output_tag}.Rda"))
+load(file = glue("{output_path}sae_sensitivity_estimates_{my_output_tag}.Rda")) 
+```
+
+## Motivate Potential Now-casting Specifications
+
+### Examine sampling of CPS cohorts
+
+```{r examine the size of CPS cohorts}
+cps_cohort_ns <- 
+  cps_child_base[j = .(n = .N),
+                 by = .(YEAR, MONTH, YEAR_MONTH)]
+
+ggplot(cps_cohort_ns[YEAR > 2015],
+       aes(x = YEAR_MONTH,
+           y = n)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Households First Entering the CPS, by Year and Month",
+       subtitle = "The size of cohorts are consistent, except for sampling concerns around the initial COVID-19 wave",
+       x = "Year/Month of First Entry",
+       y = "# of Households") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+### Examine Rates of Household Transition from Baseline to Post
+
+To gain descriptive evidence of the pandemic's impact, we first examine transitions into poverty by a range of household circumstances at baseline.
+
+```{r function to visualize transitions}
+visualize_cps_transitions <- function(trans_calcs, # transition calculations output from the `calc_cps_transitions` function
+                                      vul_vars,    # Character vector of names of two vulnerability fields
+                                      vul1_label,  # Label for the first vulnerability field
+                                      vul2_label,  # Label for the second vulnerability field
+                                      title) {
+  ggplot(trans_calcs[j = outcome_label := label_outcome(outcome_var)],
+         aes_string(x = vul_vars[1],
+                    y = "ratio_mean",
+                    fill = vul_vars[2])) +
+  geom_bar(stat = "identity",
+           position = "dodge") +
+  geom_hline(yintercept = 1.0) +
+  scale_fill_manual(name = vul2_label,
+                    values = chHexs) +
+  facet_grid(~ outcome_label) +
+  labs(x = vul1_label,
+       y = "# Children Eligible in Post\nper 1.0 Children at Baseline",
+       title = title) +
+  myTheme
+}
+```
+
+#### Examine the role of adjusting for economic impact payments
+
+We compare the impact on transition rates of adjusting program eligibility (and baseline income, if warranted) for the Economic Impact Payments.
+
+```{r calculate CPS transitions by only poverty -- unadjusted}
+cps_transition_pov_unadj <- 
+  calc_cps_transitions(base_data = cps_child_base[YEAR == 2019 & METRO %in% 2:4],
+                       #stratum_vars = "child_agegroup",
+                       vulnerability_vars = c("fam_incpov_ratio_cat_by100"), 
+                       outcome_vars = c("hs_elig_post",
+                                        "pfa_elig_post"))
+
+cps_transition_pov_adj <- 
+  calc_cps_transitions(base_data = cps_child_base[YEAR == 2019 & METRO %in% 2:4],
+                       #stratum_vars = "child_agegroup",
+                       vulnerability_vars = c("fam_incpov_ratio_cat_by100_adj"), 
+                       outcome_vars = c("hs_elig_post_adj",
+                                        "pfa_elig_post_adj"))
+
+cps_transition_pov_comp <-
+  bind_rows(cps_transition_pov_unadj,
+            cps_transition_pov_adj %>% 
+              rename(fam_incpov_ratio_cat_by100 = fam_incpov_ratio_cat_by100_adj)) %>% 
+  mutate(calc = ifelse(str_detect(outcome_var, "_adj$"), "Adjusted", "Unadjusted") %>% 
+                  factor(levels = c("Unadjusted", "Adjusted")),
+         outcome_var = str_replace_all(outcome_var, "_adj", ""),
+         outcome_label = label_outcome(outcome_var))
+  
+visualize_cps_transitions(trans_calcs = cps_transition_pov_comp, 
+                          vul_vars = c("fam_incpov_ratio_cat_by100", "calc"),
+                          vul1_label = "Income-to-Poverty at Baseline",
+                          vul2_label = "Adjustment",
+                          title      = "Comparing Transition Rates from Baseline to Post-Period Eligibility")
+```
+
+We examine transitions by poverty and head of household industry for income-to-poverty, adjusting for Economic Impact Payments.
+
+```{r calculate CPS transitions by adjusted poverty and head of household industry}
+cps_transition_pov_indv <- 
+  calc_cps_transitions(base_data = cps_child_base[YEAR == 2019 & METRO %in% 2:4],
+                       #stratum_vars = "child_agegroup",
+                       vulnerability_vars = c("fam_incpov_ratio_cat_by100_adj",
+                                              "hoh_industry_vulnerable"), 
+                       outcome_vars = c("hs_elig_post_adj",
+                                        "pfa_elig_post_adj"))
+
+visualize_cps_transitions(trans_calcs = cps_transition_pov_indv, 
+                          vul_vars = c("fam_incpov_ratio_cat_by100_adj",
+                                       "hoh_industry_vulnerable"),
+                          vul1_label = "Income-to-Poverty at Baseline",
+                          vul2_label = "Head of Household: 'Vulnerable' Work Industry",
+                          title      = "Comparing Transition Rates from Baseline to Post-Period Eligibility")
+```
+
+#### Examine the role of presence of school-aged youth
+
+```{r calculate CPS transitions by poverty and presence of school-aged child}
+cps_transition_pov_schkid <- 
+  calc_cps_transitions(base_data = cps_child_base[YEAR == 2019 & METRO %in% 2:4],
+                       #stratum_vars = "child_agegroup",
+                       vulnerability_vars = c("fam_incpov_ratio_cat_by100_adj",
+                                              "has_schage_kid_base"), 
+                       outcome_vars = c("hs_elig_post_adj", 
+                                        "pfa_elig_post_adj",
+                                        "hoh_empl_post"))
+
+visualize_cps_transitions(trans_calcs = cps_transition_pov_schkid, 
+                          vul_vars = c("fam_incpov_ratio_cat_by100_adj", 
+                                       "has_schage_kid_base"),
+                          vul1_label = "Income-to-Poverty at Baseline",
+                          vul2_label = "School-aged Child at Baseline",
+                          title      = "Comparing Transition Rates from Baseline to Post-Period Eligibility") +
+  theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1))
+```
+
+#### Examine transitions into employment
+
+```{r calculate CPS transitions by poverty and base-employment to post-employment}
+cps_child_base[j = fhoh_empl := factor(hoh_empl, 
+                                       levels = 0:1,
+                                       labels = c("HOH Not Emp, Base",
+                                                  "HOH Emp, Base"))]
+transition_ratios_empl_2019 <-
+  calc_cps_transitions(base_data = cps_child_base[YEAR == 2019 & MONTH == 1], 
+                       stratum_vars = NULL, 
+                       vulnerability_vars = c("fam_incpov_ratio_cat_by100_adj", 
+                                              "fhoh_empl"),
+                       outcome_vars = c("hoh_empl_post"),
+                       use_boot = TRUE)
+
+visualize_cps_transitions(trans_calcs = transition_ratios_empl_2019, 
+                          vul_vars = c("fam_incpov_ratio_cat_by100_adj",
+                                       "fhoh_empl"),
+                          vul1_label = "Income-to-Poverty at Baseline",
+                          vul2_label = "Head of Household Baseline Employment",
+                          title      = "Comparing Transition Rates in Employment from Baseline to Post")
+```
+
+#### Examine transitions in to employment based on metropolitan status of geography
+
+We compare transition subsets by geographic subset   
+
+```{r, eval = developer_mode}
+cps_documentation <- read_ipums_ddi(glue("{input_path}{cps_raw}.xml"))
+show_ipums_doc(cps_documentation,
+               fields = c("METRO"))
+```
+
+We compare transition ratios across inclusion of surveyed households by metropolitan residence status.
+
+```{r calculate CPS transitions by metro residence status}
+transition_ratios_empl_2019_metro <-
+  calc_cps_transitions(base_data = cps_child_base[YEAR == 2019 & MONTH == 1 & METRO %in% 1:4] %>% 
+                         .[j = METRO := factor(METRO, 
+                                               levels = 1:4,
+                                               labels = c("Not in Metro", "Central City", 
+                                                          "Outside Central City", "Central City Status Unknown"))], 
+                       stratum_vars = NULL, 
+                       vulnerability_vars = c("fam_incpov_ratio_cat_by100_adj",
+                                              "METRO"),  # , "hoh_industry_vulnerable"
+                       outcome_vars = c("hoh_empl_post"),
+                       use_boot = TRUE)
+
+visualize_cps_transitions(trans_calcs = transition_ratios_empl_2019_metro, 
+                          vul_vars = c("fam_incpov_ratio_cat_by100_adj",
+                                       "METRO"),
+                          vul1_label = "Income-to-Poverty at Baseline",
+                          vul2_label = "Residence status",
+                          title = "Comparing Transition Rates in Employment from Baseline to Post-Period Eligibility")
+```
+
+#### Examine transitions in to income bands based on metropolitan status of geography
+
+```{r calculate transition ratio calculations by geography}
+trans_ratio_calc_byinput <- function(subset_data, subset_label) {
+  calc_cps_transitions(base_data = subset_data, 
+                       stratum_vars = NULL, 
+                       vulnerability_vars = c("fam_incpov_ratio_cat_by100"), 
+                       outcome_vars = c("hs_elig_post", "pfa_elig_post"),
+                       use_boot = TRUE) %>% 
+    mutate(subset_label = subset_label)
+}
+
+trans_ratios_2019       <- trans_ratio_calc_byinput(cps_child_base[YEAR == 2019],                  "All CPS")
+trans_ratios_metro      <- trans_ratio_calc_byinput(cps_child_base[YEAR == 2019 & METRO %in% 2:4], "Metro")
+trans_ratios_citycenter <- trans_ratio_calc_byinput(cps_child_base[YEAR == 2019 & METRO == 2],     "City Center")
+```
+
+
+#### Examine transitions into CCDF status by presence of spouse
+
+We examine transitions into CCDF eligibility.
+
+```{r calculate CPS transitions into CCDF by income and spouse presence}
+cps_transition_ccdf <- 
+  calc_cps_transitions(base_data = cps_child_base[YEAR == 2019 & METRO %in% 2:4],
+                       #stratum_vars = "child_agegroup",
+                       vulnerability_vars = c("fam_incpov_ratio_cat_by100_adj",
+                                              "fSpouse_present"), 
+                       outcome_vars = c("ccdf_elig_tight_inc",
+                                        "ccdf_elig_tight_inc_adj",
+                                        "ccdf_elig_loose_inc",
+                                        "ccdf_elig_loose_inc_adj"))
+
+visualize_cps_transitions(trans_calcs = cps_transition_ccdf, 
+                          vul_vars = c("fam_incpov_ratio_cat_by100_adj",
+                                       "fSpouse_present"),
+                          vul1_label = "Income-to-Poverty at Baseline",
+                          vul2_label = "Spouse Present at Baseline",
+                          title      = "Comparing CCDF Transition Rates from Baseline to Post-Period Eligibility") +
+  theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1))
+```
+
+#### Examine transitions into CCDF status by baseline work eligibility
+
+```{r calculate CPS transitions into CCDF by income and workforce eligibility}
+cps_transition_ccdf <- 
+  calc_cps_transitions(base_data = cps_child_base[YEAR == 2019 & METRO %in% 2:4] %>% 
+                                     .[j = fCcdf_elig_tight := c("Not Working Elig (base)", 
+                                                                 "Working Elig (base)")[1 +ccdf_elig_tight]],
+                       #stratum_vars = "child_agegroup",
+                       vulnerability_vars = c("fam_incpov_ratio_cat_by100_adj",
+                                              "fCcdf_elig_tight"), 
+                       outcome_vars = c("ccdf_elig_tight_inc",
+                                        "ccdf_elig_tight_inc_adj",
+                                        "ccdf_elig_loose_inc",
+                                        "ccdf_elig_loose_inc_adj"))
+
+visualize_cps_transitions(trans_calcs = cps_transition_ccdf, 
+                          vul_vars = c("fam_incpov_ratio_cat_by100_adj",
+                                       "fCcdf_elig_tight"),
+                          vul1_label = "Income-to-Poverty at Baseline",
+                          vul2_label = "Spouse Present at Baseline",
+                          title      = "Comparing CCDF Transition Rates from Baseline to Post-Period Eligibility") +
+  theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1))
+```
+
+#### Examine transitions into CCDF status by baseline work eligibility
+
+Compare transition ratios across inclusion of surveyed households by metropolitan residence status.
+
+```{r compare sensitivities across location}
+comp_vars <- c("ratio_mean", "ratio_se")
+keep_vars <- c("fam_incpov_ratio_cat_by100", "outcome_var", comp_vars)
+  
+comp_ratios_loc <- 
+  bind_rows(trans_ratios_2019,
+            trans_ratios_metro,
+            trans_ratios_citycenter) %>% 
+  mutate(outcome_label = label_outcome(outcome_var),
+         loc = factor(subset_label, levels = c("All CPS", "Metro", "City Center")))
+
+ggplot(comp_ratios_loc,
+       aes(x = outcome_label, 
+           y = ratio_mean,
+           fill = loc,
+           group = loc)) +
+  geom_bar(stat = "identity",
+           position = "dodge") +
+  geom_errorbar(aes(ymin = ratio_mean - 1.96*ratio_se,
+                    ymax = ratio_mean + 1.96*ratio_se),
+                width = 0.2,
+                position = position_dodge(0.9)) +
+  facet_wrap(~ fam_incpov_ratio_cat_by100) +
+  scale_fill_manual(name = "",
+                    values = chHexs) +
+  labs(x = "",
+       y = "Transition Ratio",
+       title = "Transition Ratios by CPS Geographic Subset") +
+  myTheme
+```
+
+#### Examine transitions into income bands by CPS cohort
+
+We examine sensitivities of "transition ratios" across choices of CPS entering cohorts to include.
+
+```{r calculate transition ratio calculations by cohort}
+trans_ratios_2019_01  <- trans_ratio_calc_byinput(cps_child_base[METRO %in% 2:4 & YEAR == 2019 & MONTH == 1], "Jan 2019 Cohort")
+trans_ratios_2019     <- trans_ratio_calc_byinput(cps_child_base[METRO %in% 2:4 & YEAR == 2019],              "All 2019 Cohorts")
+trans_ratios_2020_02  <- trans_ratio_calc_byinput(cps_child_base[METRO %in% 2:4 & YEAR == 2020 & MONTH == 2], "Feb 2020 Cohort")
+trans_ratios_2020_win <- trans_ratio_calc_byinput(cps_child_base[METRO %in% 2:4 & YEAR_MONTH %in% c("2019-12", paste0("2020-0", 1:2))],              "Winter 19/20 Cohort")
+```
+
+```{r compare sensitivities across cps cohorts}
+comp_vars <- c("ratio_mean", "ratio_se")
+keep_vars <- c("fam_incpov_ratio_cat_by100", "outcome_var", comp_vars)
+  
+comp_ratios_cohort <- 
+  bind_rows(trans_ratios_2019,
+            trans_ratios_2019_01,
+            trans_ratios_2020_02,
+            trans_ratios_2020_win) %>% 
+  mutate(outcome_label = label_outcome(outcome_var),
+         cohorts = factor(subset_label, 
+                          levels = c("All 2019 Cohorts", "Jan 2019 Cohort", "Feb 2020 Cohort", "Winter 19/20 Cohort")))
+
+ggplot(comp_ratios_cohort,
+       aes(x = outcome_label, 
+           y = ratio_mean,
+           fill = cohorts,
+           group = cohorts)) +
+  geom_bar(stat = "identity",
+           position = "dodge") +
+  geom_errorbar(aes(ymin = ratio_mean - 1.96*ratio_se,
+                    ymax = ratio_mean + 1.96*ratio_se),
+                width = 0.2,
+                position = position_dodge(0.9)) +
+  facet_wrap(~ fam_incpov_ratio_cat_by100) +
+  scale_fill_manual(name = "",
+                    values = chHexs) +
+  myTheme
+```
+
+## Implement the Now-Casting Method
+
+This method considers community factors of households for predicting potential transition into eligibility status. In addition to accounting for "vulnerability" factors such as baseline poverty status, this method can also consider factors like education, race/ethnicity, or general industries employing local workers.
+
+While the SAE method is limited in how much detail it can estimate for 2019 with validity, this method uses other measures by assuming that ACS 5-year measures are applicable to 2019. For some measures like adult educational attainment and race/ethnicity, we believe that this assumption is defensible.
+
+```{r prepare cps data for statistical analysis of transitions}
+
+cps_child_base_post <- 
+  merge(cps_child_base,
+        cps_post,
+        by = "CPSID",
+        all.x = TRUE,
+        suffixes = c("_b", "_p")) %>% 
+  mutate(
+         # Develop measures that are parallel to general controls in the ACS 5-year
+         ed_lths     = 1*(str_detect(hoh_educ, "less_hs")),
+         ed_hs       = 1*(str_detect(hoh_educ, "^hs")),
+         ed_somecoll = 1*(str_detect(hoh_educ, "somecoll")),
+         ed_coll     = 1*(str_detect(hoh_educ, "^coll")),
+         
+         pctFemale_noSp_est = 1*((!spouse_present)*(hoh_gender == "female")),
+           pctMale_noSp_est = 1*((!spouse_present)*(hoh_gender == "male")),
+             pctMarried_est = 1*(  spouse_present),
+         
+         # Note: Even though we use `ccdf_elig_tight` as the outcome measure of
+         # interest below, we use `ccdf_elig_loose` here because this is the 
+         # measure that is more consistent with the ACS 1-year definition available
+         # via work and school variables. The `tight` measures, by contrast, is
+         # closer to the outcome we believe in, i.e. that actual eligibility is
+         # closer to the `tight` construction available in the CPS data than it 
+         # is to the `loose`.
+         # Develop measures parallel to vulnerability categories constructed in
+         # the ACS 1-year, and produced in the SAE method
+         
+         share_NotWorkElig_SpousePresent   = (1 - ccdf_elig_loose)*(    spouse_present),
+         share_NotWorkElig_NoSpousePresent = (1 - ccdf_elig_loose)*(1 - spouse_present),
+         share_WorkElig_SpousePresent      =      ccdf_elig_loose *(    spouse_present),
+         share_WorkElig_NoSpousePresent    =      ccdf_elig_loose *(1 - spouse_present),
+         
+         # Develop income measures in parallel with what is developed in the SAE
+         # methods
+         share_0_50    = 1*(fam_incpov_ratio_cat_by50_adj  ==   "0%-50%"),
+         share_50_100  = 1*(fam_incpov_ratio_cat_by50_adj  ==  "50%-100%"),
+         share_0_100   = 1*(fam_incpov_ratio_cat_by100_adj ==   "0%-100%"),
+         share_100_200 = 1*(fam_incpov_ratio_cat_by100_adj == "100%-200%"),
+         share_200_300 = 1*(fam_incpov_ratio_cat_by100_adj == "200%-300%"),
+         share_300     = 1*(fam_incpov_ratio_cat_by100_adj == "300%+"))
+
+# Generate work eligibility and income interactions consistent with SAE methods.
+# At the same time, also make sure to create un-interacted income categories
+# (as necessary) for the sake of the prediction step.
+
+if (local_ccdf_thresh == 200) {
+  cps_child_base_post <- 
+    cps_child_base_post %>% 
+    mutate(share_NotWorkElig_0_100   = (1 - ccdf_elig_loose)*share_0_100,
+           share_NotWorkElig_100_200 = (1 - ccdf_elig_loose)*share_100_200,
+           share_NotWorkElig_200_300 = (1 - ccdf_elig_loose)*share_200_300,
+           share_NotWorkElig_300     = (1 - ccdf_elig_loose)*share_300,
+           share_WorkElig_0_100      =      ccdf_elig_loose *share_0_100,
+           share_WorkElig_100_200    =      ccdf_elig_loose *share_100_200,
+           share_WorkElig_200_300    =      ccdf_elig_loose *share_200_300,
+           share_WorkElig_300        =      ccdf_elig_loose *share_300)
+  
+} else if (local_ccdf_thresh == 225) {
+  cps_child_base_post <- 
+    cps_child_base_post %>% 
+    mutate(share_0_75    = 1*(fam_incpov_ratio_cat_by75_adj ==   "0%-75%"),
+           share_75_150  = 1*(fam_incpov_ratio_cat_by75_adj ==  "75%-150%"),
+           share_150_225 = 1*(fam_incpov_ratio_cat_by75_adj == "150%-225%"),
+           share_225_300 = 1*(fam_incpov_ratio_cat_by75_adj == "225%-300%"),
+           share_300     = 1*(fam_incpov_ratio_cat_by75_adj == "300%+"),
+           
+           share_NotWorkElig_0_75    = (1 - ccdf_elig_loose)*share_0_75,
+           share_NotWorkElig_75_150  = (1 - ccdf_elig_loose)*share_75_150,
+           share_NotWorkElig_150_225 = (1 - ccdf_elig_loose)*share_150_225,
+           share_NotWorkElig_225_300 = (1 - ccdf_elig_loose)*share_225_300,
+           share_NotWorkElig_300     = (1 - ccdf_elig_loose)*share_300,
+           share_WorkElig_0_75       =      ccdf_elig_loose *share_0_75,
+           share_WorkElig_75_150     =      ccdf_elig_loose *share_75_150,
+           share_WorkElig_150_225    =      ccdf_elig_loose *share_150_225,
+           share_WorkElig_225_300    =      ccdf_elig_loose *share_225_300,
+           share_WorkElig_300        =      ccdf_elig_loose *share_300)
+}
+```
+
+```{r develop select subsets of cps pre-post data for use}
+
+cps_child_base_post[j = YEAR_MONTH_p := paste(YEAR_p, 
+                                              str_pad(MONTH_p, side = "left", pad = "0", width = 2), 
+                                              sep = "-")]
+
+most_recent_months <- cps_child_base_post %>% pull(YEAR_MONTH_p) %>% setdiff("NA-NA") %>% unique() %>% sort(decreasing = TRUE) %>% .[1:3]
+
+cps_reg_sample_most_recent <- 
+  cps_child_base_post[YEAR_MONTH_p %in% most_recent_months]
+
+# Select all 
+cps_reg_sample_allbase <- 
+  cps_child_base_post[YEAR_b == base_year]
+  
+# Check post-period months
+if (FALSE) {
+  reg_sample_2020[, .(YEAR_p, MONTH_p)] %>% unique()
+}
+```
+
+```{r pivot SAE measures wide}
+# Reshape the SAE data wide for the sake of prediction.
+pivot_sae_wide <- function(sae_spec, share_var) {
+  sae_spec[["sae_out"]] %>% 
+    select(one_of(c("GEOID", "vc_value", share_var))) %>% 
+    mutate(vc_value = paste0("share_", vc_value) %>% 
+             str_replace_all("%|\\+", "") %>% 
+             str_replace_all("-", "_")) %>%
+    pivot_wider(id_cols = c("GEOID"), 
+                names_from = vc_value, 
+                values_from = share_var)
+}
+
+# for (spec in specs) {
+#   assign(glue("sae_{spec}_wide"),
+#          get(glue("sae_results_{spec}")) %>%
+#            pivot_sae_wide())
+# }
+```
+
+```{r develop list of predictors for transition/now-casting}
+# Develop controls
+# /!\ Other predictors to consider building include:
+# - presence of spouse, 
+# - labor force participation
+# - employment status
+# - race/ethnicity and
+# - industry of employment
+# We have started with a single measure--education--for proof of concept, and as
+# a strong correlate of other factors
+
+# /!\ Should generalize the method to fit different SAE methods
+# That would require tailoring this set of controls. Could make that flexible by
+# drawing on columns in the corresponding sae_ctrls_wide input
+
+# These are all fields relevant to predicting post-period status
+transition_pred_vars_acs5 <- 
+  c("ed_lths", "ed_hs", "ed_somecoll", "ed_coll",
+    "pctFemale_noSp_est", "pctMale_noSp_est", "pctMarried_est")
+
+transition_pred_vars_toadd_pov      <- 
+  c("share_0_50", "share_50_100", "share_100_200", "share_200_300", "share_300")
+
+transition_pred_vars_toadd_ccdf_elig_pov <- 
+  str_subset(colnames(cps_child_base_post),
+             "share_(Not)?WorkElig_\\d")
+
+transition_pred_vars_toadd_ccdf_elig_spouse <- 
+  str_subset(colnames(cps_child_base_post),
+             "share_(Not)?WorkElig_\\D")
+
+# Set reference group categories
+transition_pred_vars_toomit <- 
+  c("ed_lths", "pctMarried_est")
+  # ... Currently choosing to allow these reference variables to be included,
+  # because we want to have them show up in "unconditional" regressions (where)
+  # each level effectively estimates its average. To enable this, we're estimating
+  # the regressions without intercepts.
+  #   "share_0_100",
+  #   "share_NotWorkElig_0_100",
+  #   "share_NotWorkElig_NoSpousePresent"
+```
+
+```{r subset acs 5-year data that is relevant based on the specification}
+
+# Subset to variables selected for "now"-casting, as well as SAE measures
+# for later reference
+acs5_keep_vars <- 
+  unique(c("GEOID", "COUNTYFIP",
+           "age_0to5_count",  "age_0to5_se", 
+           "age_6to12_count", "age_6to12_se", 
+           transition_pred_vars_acs5,
+           sae_controls_list %>% unlist()))
+
+acs5tract_reg <- 
+  acs5tract %>% 
+  select(one_of(acs5_keep_vars))
+
+if (exists("my_county_fip")) {
+  acs5tract_reg <- 
+    acs5tract_reg[COUNTYFIP == my_county_fip]
+}
+```
+
+```{r subset population data to useful content}
+pop_for_nowcast <- 
+  pop_by_age %>% 
+  filter(year == base_year + 1) %>% 
+  mutate(age_0to5_se  = 0,
+         age_6to12_se = 0) %>% 
+  select(GEOID, age_0to5_count, age_0to5_se, age_6to12_count, age_6to12_se)
+```
+
+
+```{r set a function for estimating a single run of transition estimation}
+
+estimate_transition_counts <- function(sae_spec_name, share_calc_var, outcome_var, sae_controls, transition_data, age_prefix) {
+   
+  sae_wide <- pivot_sae_wide(get(sae_spec_name),
+                             share_calc_var)
+  
+  pred_data <- 
+    sae_wide %>% 
+    merge(acs5tract_reg,
+          by = "GEOID",
+          all.x = TRUE) %>% 
+    # merge(pop_for_nowcast,
+    #       by = "GEOID",
+    #       all.x = TRUE) %>% 
+    merge(geo_crosswalk[j = .(GEOID, PUMA)] %>% unique(),
+          by = "GEOID",
+          all.x = TRUE) %>% 
+    data.table()
+  
+  pred_controls <- 
+    c(transition_pred_vars_acs5,
+      sae_controls) %>% 
+    unique() %>% 
+    setdiff(transition_pred_vars_toomit)
+  
+  est_apply_trans(cps_trans_data  = transition_data,
+                  outcome_var     = outcome_var,
+                  pred_vars       = pred_controls,     
+                  vars_for_uncond = setdiff(sae_controls, transition_pred_vars_toomit),
+                  sae_acs5_vals   = pred_data, 
+                  count_var       = glue("{age_prefix}_count"),     
+                  count_se_var    = glue("{age_prefix}_se"))
+}
+```
+
+For each count category of deep poverty, in poverty (i.e. Head Start eligibility), below 200% FPL, and `r local_ccdf_name_short`-eligibility, we implement sensitivities across:
+
+1. Selection of CPS Cohorts -- those in line with the full base year, versus the most recent data from the three most recent monthly cohorts
+2. Samples of geography of CPS households -- subsetting by those in metro areas, versus no subsampling
+3. Various specifications of the SAE method, including separate implementations by age of children
+
+```{r implement now-casting and harvest prediction outputs}
+
+nowcast_out <- NULL
+nowcast_betas_out <- NULL
+
+# Loop across CPS 
+for (cps_recency in c("most_recent", "allbase")) {
+  
+  cps_reg_data <- switch(cps_recency,
+                         "most_recent" = cps_reg_sample_most_recent,
+                         "allbase"     = cps_reg_sample_allbase)
+  
+  # Loop across CPS subsamples
+  for (cps_geo_subsample in c("none", "metros")) {
+    
+    # Select subsample of CPS data, if applicable
+    cps_reg_data_sample <- 
+      switch(cps_geo_subsample,
+             "none"   = cps_reg_data,
+             "metros" = cps_reg_data[METRO %in% 2:4])
+    
+    for (sae_spec in specs) {
+      
+      # Determine which outcomes to run with each SAE sensitivity specification.
+      # We may want to be more selective, given both run-times and sensibilities
+      # around modeling choices.
+      
+      ages <- str_extract(sae_spec, "\\d+$")
+      if (ages == "05") {
+        age_prefix <- "age_0to5"
+        cps_reg_use <- cps_reg_data_sample[between(AGE, 0, 5)]
+      } else if (ages == "612") {
+        age_prefix <- "age_6to12"
+        cps_reg_use <- cps_reg_data_sample[between(AGE, 6, 12)]
+      }
+      
+      if (str_detect(sae_spec, "^incpov")) {
+        # Using the poverty estimates to predict poverty-related eligibility, 
+        # as well as CCDF eligibility because why not. Also there's reason to 
+        # believe that more parsimonious specifications may do better.
+        outcome_vars <- c("deep_pov_post_adj", 
+                          "hs_elig_post_adj", 
+                          "pfa_elig_post_adj", 
+                          "upk_elig_post_adj", 
+                          "ccdf_elig_tight_inc_adj")
+        sae_controls <- transition_pred_vars_toadd_pov
+      } else if (str_detect(sae_spec, "^ccdf")) {
+        outcome_vars <- "ccdf_elig_tight_inc_adj"
+        sae_controls <- 
+          if(str_detect(sae_spec, "wk_sp")) {
+            transition_pred_vars_toadd_ccdf_elig_spouse
+          } else {
+            transition_pred_vars_toadd_ccdf_elig_pov
+          }
+      }
+    
+      for (outcome_var in outcome_vars) {
+        
+        # print(glue("Running CPS recency {cps_recency}, CPS geo subsample {cps_geo_subsample}, ",
+        #            "sae_spec {sae_spec}, outcome variable {outcome_var}"))
+        count_est_output <- 
+          estimate_transition_counts(sae_spec_name   = glue("sae_results_{sae_spec}"),
+                                     share_calc_var  = ifelse(use_only_sae_model_estimates,
+                                                              "share_model_trunc",
+                                                              "share_fh_trunc"),
+                                     outcome_var     = outcome_var,
+                                     sae_controls    = sae_controls,
+                                     transition_data = cps_reg_use,
+                                     age_prefix      = age_prefix)
+        add_run_details <- function(x) {
+          mutate(x,
+                 sae_spec          = sae_spec,
+                 cps_base_recency  = cps_recency,
+                 cps_geo_subsample = cps_geo_subsample,
+                 outcome_var       = outcome_var)
+        }
+        
+        # Collect count estimates
+        nowcast_out <-
+          bind_rows(nowcast_out,
+                    add_run_details(count_est_output[[1]]))
+        
+        # Collect betas
+        nowcast_betas_out <- 
+          bind_rows(nowcast_betas_out,
+                    add_run_details(count_est_output[[2]]))
+        
+      } # end loop across outcomes
+    } # end loop across SAE specifications
+  } # end loop across cps geo subsample
+} # end loop across cps recency
+
+nowcast_betas_out <- data.table(nowcast_betas_out)
+```
+
+```{r save final results from now-casting}
+# Pull out key information of now-casting output from the larger set of output
+# which has more contextual fields
+key_nowcast_out <- 
+  nowcast_out %>% 
+  select(GEOID, outcome_var, elig_share, elig_share_se, elig_count, elig_count_se,
+         sae_spec, cps_base_recency, cps_geo_subsample)
+
+save(key_nowcast_out,
+     nowcast_out,
+     nowcast_betas_out,
+     most_recent_months,
+     file = glue("{output_path}Eligibility estimates using conditional transition ratio - {my_output_tag}.Rda"))
+```
+
+### Examine Estimated Betas from the Now-Casting
+
+We next examine estimated parameters from analysis of post-period measures the CPS.
+
+```{r function to compare conditional and unconditional betas}
+compare_betas <- function(betas, title, subtitle, comp_var, comp_var_label, print_table = FALSE, save_tag = "") {
+  if (print_table) {
+    betas %>% 
+    arrange(trans_spec) %>% 
+    transmute(Term = term, 
+              `Comp Var` = get(comp_var),
+              Estimate = round(estimate, 3),
+              `p-value` = round(p.value, 4)) %>% 
+    kable() %>% 
+    print()
+  }  
+  
+  if ("uncond" %in% betas$trans_spec) {
+    common_vars <- 
+      betas %>% 
+      filter(trans_spec == "uncond") %>% 
+      pull(term) %>% 
+      unique()  
+    betas <- 
+      filter(betas,
+             term %in% common_vars)
+  }
+  
+  betas <- 
+    betas %>% 
+    mutate(var_label = label_vars(term))
+  
+  my_plot <- 
+    ggplot(betas,
+           aes_string(x = "var_label",
+                      y = "estimate",
+                      fill = comp_var)) +
+    geom_bar(stat = "identity",
+             position = "dodge") +
+    geom_errorbar(aes(ymin = estimate - 1.96*std.error,
+                      ymax = estimate + 1.96*std.error),
+                  width = 0.1,
+                  position = position_dodge(.9)) +
+    scale_fill_manual(name = comp_var_label, 
+                      values = chHexs,
+                      # breaks = c("cond", "uncond"),
+                      # labels = c("Conditional", "Unconditional")
+    ) +
+    labs(title = title,
+         subtitle = subtitle,
+         x = "",
+         y = "Estimated Coefficient") +
+    coord_flip() + 
+    theme_minimal() +
+    theme(axis.text = element_text(size = 11),
+          legend.position = "bottom")
+  
+  if (save_tag != "") {
+    ggsave(plot = my_plot, 
+           filename = glue("{output_path}nowcasting_coefficients_{my_output_tag}_{save_tag}.png"))
+  }
+  
+  return(my_plot)
+  
+}
+```
+
+Comparing conditional vs unconditional estimates of SAE measures.
+
+```{r compare now-casting betas, results = "asis"}
+compare_betas(
+  betas = filter(nowcast_betas_out,
+                 outcome_var       == "hs_elig_post_adj",
+                 sae_spec          == "incpov_ctrls2534_05",
+                 cps_base_recency  == "most_recent",
+                 cps_geo_subsample == "none"),
+  title = "Now-Casting Coefficients Predicting Head Start Elig: Conditional vs Unconditional",
+  subtitle = case_when(my_output_tag == "IL" ~ "",
+                       TRUE ~ ""),
+  comp_var = "trans_spec",
+  comp_var_label = "Control Specification"
+)
+# Note -- this has limited value, since the choice of reference values for the
+  # conditional drives the comparison. This machinery may be more worth examining
+  # results for the same regression specification, but with different CPS subsets
+
+compare_betas(
+  betas = filter(nowcast_betas_out,
+                 outcome_var      == "hs_elig_post_adj",
+                 sae_spec         == "incpov_ctrls2534_05",
+                 cps_base_recency == "most_recent",
+                 trans_spec       == "cond"),
+  title = "Now-Casting Coefficients Predicting Head Start Elig: Comparison Across CPS Subsets",
+  subtitle = case_when(my_output_tag == "IL" ~ "",
+                       TRUE ~ ""),
+  comp_var = "cps_geo_subsample",
+  comp_var_label = "CPS Geographic Subset",
+  save_tag = "hs_comp-geo-subset"
+)
+
+compare_betas(
+  betas = filter(nowcast_betas_out,
+                 outcome_var       == "hs_elig_post_adj",
+                 sae_spec %in% c("incpov_ctrls2534_05", "incpov_ctrls2534_612"),
+                 cps_base_recency  == "most_recent",
+                 cps_geo_subsample == "none",
+                 trans_spec        == "cond"),
+  title = "Now-Casting Coefficients Predicting Head Start Elig: Comparison Across Estimation for 0-5 vs 6-12",
+  subtitle = case_when(my_output_tag == "IL" ~ "",
+                       TRUE ~ ""),
+  comp_var = "sae_spec",
+  comp_var_label = "CPS Geographic Subset",
+  save_tag = "hs_comp-age05-vs-612"
+)
+
+compare_betas(
+  betas = filter(nowcast_betas_out,
+                 outcome_var       == "hs_elig_post_adj",
+                 sae_spec          == "incpov_ctrls2534_05",
+                 cps_geo_subsample == "none",
+                 trans_spec        == "cond"),
+  title = "Now-Casting Coefficients Predicting Head Start Elig: Comparison Across CPS Recency",
+  subtitle = case_when(my_output_tag == "IL" ~ "",
+                    TRUE ~ ""),
+  comp_var = "cps_base_recency",
+  comp_var_label = "CPS Base Recency",
+  save_tag = "hs_comp-cps-recency"
+)
+
+compare_betas(
+  betas = filter(nowcast_betas_out,
+                 outcome_var       == "ccdf_elig_tight_inc_adj",
+                 sae_spec          == "ccdf_wk_pov_05",
+                 cps_geo_subsample == "none",
+                 trans_spec        == "cond"),
+  title = "IL" ~ "Comparison of Estimated CCDF Now-Casting Coefficients Across CPS Recency",
+  subtitle = case_when(my_output_tag == "IL" ~ "",
+                    TRUE ~ ""),
+  comp_var = "cps_base_recency",
+  comp_var_label = "CPS Base Recency",
+  save_tag = "ccdf_comp-geo-subset"
+)
+```
+
+
+### Examine Sensitivities via Direct Examination of Estimates
+
+```{r generate functions for building and plotting comparisons of share estimates}
+
+keep_cols <- c("GEOID", "cps_base_recency", "cps_geo_subsample", "sae_spec", "outcome_var")
+
+build_trans_sensitivity_comp <- function(data, comp_col, base_val) {
+  
+  # Note: we compare shares rather than counts, because the former is more directly
+  # model-related. The latter can get swamped by different sizes of tracts (and
+  # thus inflate correlations).
+  data_sub <- data[j = c(keep_cols, "elig_share", "elig_share_se"),
+                   with = FALSE]
+  
+  data_left <- 
+    data_sub[get(comp_col) == base_val] %>% 
+    select(-comp_col) %>% 
+    rename(elig_base    = elig_share,
+           elig_base_se = elig_share_se) %>% 
+    mutate(base = glue("{comp_col} == {base_val}"))
+  
+  comp <- 
+    data_left %>% 
+    merge(data_sub[get(comp_col) != base_val]) %>% 
+    .[j = `:=`(diff    = elig_share - elig_base,
+               diff_se = sqrt(elig_share_se^2 + elig_base_se^2))]
+  
+  return(comp)
+}
+   
+plot_trans_sensitivity_comp <- function(data, comp_col, base_val) {
+  
+  comp <- build_trans_sensitivity_comp(data, comp_col, base_val)
+  
+  ggplot(comp,
+         aes(x = elig_base,
+             y = elig_share)) +
+    geom_point(alpha = 0.1) +
+    geom_45(color = "blue") +
+    scale_x_continuous(labels = percent) +
+    scale_y_continuous(labels = percent) +
+    facet_wrap(as.formula(glue("~ {paste(setdiff(keep_cols, 'GEOID'), collapse = ' + ')}"))) +
+    labs(x = base_val) +
+    theme_minimal()
+  
+}
+```
+
+```{r compare SAE specifications for HS prediction}
+plot_trans_sensitivity_comp(nowcast_out[outcome_var == "hs_elig_post_adj" & cps_base_recency == "most_recent"],
+                            comp_col = "sae_spec",
+                            base_val = "incpov_ctrls2534_05") +
+  labs(title = case_when(my_output_tag == "IL" ~ "For Head Start, Sensitivities Seem Reasonably Consistent, Except for Simplest Spec",
+                         TRUE ~ ""),
+       x = "Full Income/Poverty Controls, with Employment Adjustment",
+       y = "Comparison Share EStimate")
+```
+
+```{r compare SAE specifications for CCAP prediction}
+plot_trans_sensitivity_comp(nowcast_out[outcome_var == "ccdf_elig_tight_inc_adj"],
+                            comp_col = "sae_spec",
+                            base_val = "ccdf_wk_pov_05") +
+  labs(title = case_when(my_output_tag == "IL" ~ "For CCDF Eligibility, Work and Spouse Specification consistently produces lower estimates",
+                         TRUE ~ ""),
+       x = "Specification: Work and Poverty",
+       y = "Specification: Work and Spouse Present")
+```
+
+```{r compare CPS subsetting sensitivity for HS prediction - spec 1}
+plot_trans_sensitivity_comp(nowcast_out[outcome_var == "hs_elig_post_adj" & sae_spec == "incpov_ctrls2534_05"],
+                            comp_col = "cps_geo_subsample",
+                            base_val = "none") +
+  labs(title = case_when(my_output_tag == "IL" ~ "For Head Start, Sensitivities Seem Reasonably Consistent, Except for Simplest Spec",
+                         TRUE ~ ""),
+       x = "No CPS Subsampling",
+       y = "Use of only Metro Areas in CPS")
+```
+
+```{r compare CPS subsetting sensitivity for HS prediction - spec 2}
+plot_trans_sensitivity_comp(nowcast_out[outcome_var == "hs_elig_post_adj" & sae_spec == "incpov_ctrls2534_05"],
+                            comp_col = "cps_base_recency",
+                            base_val = "most_recent") +
+  labs(title = case_when(my_output_tag == "IL" ~ "For HS, Using the 2020 Baseline yields 25% lower eligibility estimates",
+                         TRUE ~ ""),
+       x = "Use of Most Recent CPS Months",
+       y = "Use of CPS 2020 Baseline")
+```
+
+```{r check correlations between SAE specifications for each other sensitivity}
+comp_sae <- 
+  build_trans_sensitivity_comp(nowcast_out,
+                               comp_col = "sae_spec",
+                               base_val = "incpov_ctrls2534_05")
+
+comp_sae[j = .(rho = cor(elig_base, elig_share)),
+         by = .(sae_spec, outcome_var, cps_base_recency, cps_geo_subsample)] %>% 
+  .[order(rho)]
+```
+
+```{r scatterplot of differences and errors across specifications}
+ggplot(comp_sae[cps_base_recency == "most_recent" & cps_geo_subsample == "none"],
+       aes(x = elig_base,
+           y = diff,
+           color = sae_spec)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = diff - 1.96*diff_se,
+                    ymax = diff + 1.96*diff_se),
+                width = .1) +
+  geom_hline(yintercept = 0) +
+  facet_wrap(~ sae_spec + outcome_var) +
+  labs(x = "Base Estimate",
+       y = "Diff: Spec vs Base",
+       title = case_when(my_output_tag == "IL" ~ "",
+                         TRUE ~ ""),
+       subtitle = "For most recent CPS cohorts") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+
+<!-- By outcome and method, which are statistically different from the "by 100%" with detailed controls? -->
+
+```{r calculate percent of statistical differences between methods}
+comp_sae[j = .(pct_diff_stat_sig = mean(abs(diff/diff_se) > 1.96) %>% percent()),
+                     by = .(sae_spec, outcome_var, cps_base_recency, cps_geo_subsample)]
+```
+
+<!-- How do the methods compare with respect to standard errors? -->
+
+```{r}
+ggplot(comp_sae,
+       aes(x = sae_spec,
+           y = elig_share_se,
+           color = sae_spec)) +
+  #geom_violin() +
+  geom_boxplot() +
+  facet_grid(~ outcome_var,
+             scales = "free") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90))
+```

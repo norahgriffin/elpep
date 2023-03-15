@@ -1,0 +1,163 @@
+
+```{r calculate ratios and variance by baseline conditions}
+calc_cps_transitions <- function(base_data, stratum_vars = NULL, vulnerability_vars, outcome_vars, use_boot = FALSE, n_boot = 100) {
+  # Sum the person-weight by child within each household by child stratum,
+  # and carry household vulnerability status
+  # /!\ We should obtain weights that are as of baseline rather than final
+  cps_base_calc <- 
+    base_data[j = .(hh_base_weight = sumNA(WTFINL)), 
+              by = c("CPSID", "WTFINL", "is_validation", stratum_vars, vulnerability_vars)]
+  
+  cps_post_calc <- 
+    cps_post[j = lapply(.SD, function(x) sumNA(x*HWTFINL)), 
+             by = c("CPSID", stratum_vars),
+             .SDcols = outcome_vars]
+  
+  cps_transition_ratio <- 
+    # Merge, noting that it's okay to allow this to be an "inner" join, as it's not
+    # possible to calculate ratios for incomplete panels
+    merge(cps_base_calc,
+          cps_post_calc,
+          by = c("CPSID", stratum_vars)) %>% 
+    .[j = paste0(outcome_vars, "_ratio") := lapply(.SD, function(x) x / hh_base_weight),
+      .SDcols = outcome_vars]
+  
+  cps_transition_ratio_long <- 
+    cps_transition_ratio %>% 
+    select(-one_of(outcome_vars)) %>% 
+    melt(id.vars = c("CPSID", "WTFINL", "is_validation", "hh_base_weight", stratum_vars, vulnerability_vars),
+         variable.name = "outcome_var")
+  
+  # Clean up names and tags
+  cps_transition_ratio_long <- 
+    cps_transition_ratio_long %>% 
+    
+    # Collapse the (potentially) multiple vulnerability vars into a single column
+    # for merging (to be consistent with output from the SAE method)
+    .[j = vc_value := apply(.SD, 1, paste, collapse = "__"),
+      .SDcols = vulnerability_vars] %>%
+    
+    # Remove the "_ratio" suffix from the outcome vars column. The content is 
+    # clear from context.
+    .[j = outcome_var := str_replace(outcome_var, "_ratio$", "")]
+  
+  # Inspect moments from the ratio distribution
+  # NSM: I'd included the boot because, frankly, I'd forgotten that despite the
+  # skewness of the data, the mean statistic would be appropriate to calculate
+  # with standard asymptotic variance. Since it doesn't hurt, I've left in the
+  # bootstrap method I'd developed
+  
+  if (use_boot) {
+    # NSM: I am hand-rolling this method, but see this reference for a way to use
+    # the boot() function. I skipped this because it gave more complicated output
+    # than necessary (and, frankly, I'm unfamiliar with it, and the syntax seems 
+    # a bit involved)
+    # https://stackoverflow.com/questions/18913000/r-bootstrap-statistics-by-group-for-big-data
+    run_boot <- function(dt, var) {
+      set.seed(60637)
+      out <- NULL
+      for (b in 1:n_boot) {
+        mean_b <- dt[sample(1:nrow(dt), nrow(dt), replace = TRUE, prob = WTFINL), 
+                     .(mean(get(var)))][[1]]
+        out <- c(out, mean_b)
+      }
+      return(list(ratio_mean = mean(out), 
+                  ratio_se   = sqrt(var(out))))
+                  # ratio_q05  = quantile(out, probs = 0.05), 
+                  # ratio_q95  = quantile(out, probs = 0.95)))
+    }
+    ratio_stats <- 
+      cps_transition_ratio_long[j = run_boot(.SD, var = "value"),
+                                by = c(stratum_vars, vulnerability_vars, "vc_value", "outcome_var")]
+  } else {
+    ratio_stats <-
+      cps_transition_ratio_long %>% 
+      .[j = .(ratio_mean = Hmisc::wtd.mean(value, weights = WTFINL),
+              ratio_var  = Hmisc::wtd.var( value, weights = WTFINL, normwt = TRUE),
+              ratio_var_unnorm =  Hmisc::wtd.var(value, weights = WTFINL),
+              ratio_var_unwgt  =  var(value),
+              ratio_skew = skewness(value)),
+        by = c(stratum_vars, vulnerability_vars, "vc_value", "outcome_var")]
+    
+    # Inspect stats
+    if (FALSE) {
+      # Note: different variance calculations are very highly correlated (over 0.99)
+      ratio_stats[j = cor(cbind(ratio_var, ratio_var_unnorm, ratio_var_unwgt), use = "pairwise")]
+      
+      # The ratios are also, unsurprisingly highly skewed
+      # This motivates the use of a bootstrap to get non-parametric bounds of the
+      # ratio, rather than relying on an uncertain assumption of normality
+      # NSM: post-script, it does occur to me that although the data are skewed,
+      # the distribution of the mean statistic would be normal. Surprised that 
+      # that I was foggy on that.
+      summary(ratio_stats)
+    }
+    ratio_stats <- 
+      ratio_stats[j = ratio_se := sqrt(ratio_var)] %>% 
+      select(-ratio_var_unnorm, -ratio_var_unwgt, -ratio_var, ratio_skew)
+  }
+  
+  return(ratio_stats)
+}
+```
+
+```{r function to estimate and apply transition likelihood}
+
+est_apply_trans <- function(cps_trans_data, # This is the CPS pre/post data
+                            outcome_var,    # character value with name of outcome variable
+                            pred_vars,      # variables used for predicting the outcome
+                            vars_for_uncond = 1, # a subset of variable to use in an "unconditional" regression for comparison
+                                                 # the default is just an intercept
+                            sae_acs5_vals,  # SAE+ACS5-year data with the same pred_vars, used to generate local share predictions
+                            count_var,      # character name of field in sae_acs5_vals with count value for converting share into counts
+                            count_se_var    # character name of field in sae_acs5_vals with std error of count
+                            ) {
+  
+  # Run conditional and unconditional regression
+  # We are choosing to omit intercepts, because we're including 
+  # all "base" categories, e.g. all income levels, so that the unconditional
+  # regressions return average levels of the outcome, and the conditional regressions
+  # are comparable. 
+  # Note, in the case that `vars_for_uncond` happens to be 1, the specification 
+  #   lm(y ~ -1 + 1) still will use an intercept.
+  # 
+  # /!\ Should use sample weights and robust standard errors
+  
+  reg_out_uncond <-
+    lm(glue("{outcome_var} ~ -1 + {paste(vars_for_uncond, collapse = ' + ')}"),
+       data = cps_trans_data)
+  
+  reg_out <- 
+    lm(glue("{outcome_var} ~ -1 + {paste(pred_vars, collapse = ' + ')}"),
+       data = cps_trans_data)
+  
+  # Save a data.frame with estimates
+  betas <- 
+    bind_rows(tidy(reg_out) %>% 
+                mutate(outcome = outcome_var,
+                       trans_spec = "cond"),
+              tidy(reg_out_uncond) %>% 
+                mutate(outcome = outcome_var,
+                       trans_spec = "uncond"))
+  
+  # Run prediction of shares of outcome
+  pred <- 
+    predict(object  = reg_out, 
+            newdata = sae_acs5_vals,
+            se.fit  = TRUE)
+  
+  # Convert shares to count estimates
+  count_estimates <- 
+    copy(sae_acs5_vals) %>% 
+    .[j = `:=`(count_var    = get(count_var),
+               count_se_var = get(count_se_var))] %>% 
+    .[j = `:=`(elig_share    = pred$fit,
+               elig_share_se = pred$se.fit)] %>% 
+    .[j = `:=`(elig_count    = count_var*elig_share,
+               elig_count_se = se_product(count_var, elig_share, count_se_var, elig_share_se))]
+   
+  return(list(count_estimates,
+              betas))
+}
+
+```

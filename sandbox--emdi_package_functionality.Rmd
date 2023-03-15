@@ -1,0 +1,586 @@
+---
+title: "Sandbox for Investigating Functionality of the `emdi` Package"
+author: "Nick Mader"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+source("settings--main.R")
+source("settings--profile.R")
+source("helper--stats_and_doc_functions.R")
+load(file = "../output/acs1_acs5_cps_for_estimation.Rda",
+     verbose = TRUE)
+
+# Set parameters
+B <- 5 
+  # this is the number of bootstraps. emdi examples use 50. This smaller value
+  # is chosen to enable faster runs and basic checks, not judge real performance
+
+acs1microdata_child[, hs_qual := 1*(poverty_dec <= 1.0)]
+acs1microdata_child05 <- 
+  acs1microdata_child[between(AGE, 0, 5)] %>% 
+  .[j = in_cook := 1*(PUMA %in% crosswalk[COUNTYFIP == 31]$PUMA)]
+
+acs1microdata_child05_cook <- acs1microdata_child05[in_cook == 1]
+dim(acs1microdata_child); dim(acs1microdata_child05); dim(acs1microdata_child05_cook)
+```
+
+# References
+
+Here is the `cran` page for the `emdi` package.
+
+For our application, the most directly applicable piece of documentation is [`A Framework for Producing Small Area Estimates Based on Area-Level Models in R`](https://cran.r-project.org/web/packages/emdi/vignettes/vignette_fh.pdf). It is the methods there that are directly replicated here, both in their examples, and using data run in the `estimate--01--prep-data.Rmd` file.
+
+# Perform Small Area Estimation Using the `emdi` Package
+
+## Develop Direct Estimates Using Sample Data
+
+```{r direct estimation -- emdi}
+# Generate direct estimates
+system.time({
+emdi_direct <- direct(y = "eqIncome", 
+                      smp_data = eusilcA_smp, 
+                      smp_domains = "district", 
+                      weights = "weight", 
+                      threshold = 11064.82, 
+                      var = TRUE, 
+                      boot_type = "naive", 
+                      B = 10, # B, 
+                      seed = 123, 
+                      X_calib = NULL, 
+                      totals = NULL, 
+                      na.rm = TRUE)
+})
+  
+  # Note that the threshold influences the "Poverty Gap" and Head_Count calculations
+  # that return in the emdi_direct$ind object
+  
+# Check correspondence with eusilcA_smpAgg
+emdi_check_direct <-
+  merge(emdi_direct$ind %>% select(Domain,  direct_mean = Mean),
+        eusilcA_smpAgg  %>% select(Domain, example_mean = Mean))
+ggplot(emdi_check_direct,
+       aes(x = example_mean,
+           y = direct_mean)) +
+  geom_point() + 
+  geom_abline(slope = 1, intercept = 0) + 
+  coord_fixed()
+# Close but not identical
+# Not exactly sure what specification produced eusilcA_smpAgg...
+```
+
+```{r attempting to track down Variance estimates}
+v   <- eusilcA_smpAgg %>% filter(Domain == "Amstetten") %>% pull(Var_Mean) # Var = 900k
+mse <- emdi_direct$MSE %>% filter(Domain == "Amstetten") %>% pull(Mean)    # MSE = 300k
+n   <- eusilcA_smp %>% filter(district == "Amstetten") %>% nrow()           # N = 33
+
+# Compare variance in aggregated data with MSE
+# A: very little correspondence
+emdi_var_comp <- 
+  merge(eusilcA_smpAgg  %>% select(Domain, Var_Mean),
+        emdi_direct$MSE %>% select(Domain, Mean_direct_MSE = Mean),
+        by = "Domain")
+ggplot(emdi_var_comp, 
+       aes(x = Var_Mean,
+           y = Mean_direct_MSE)) +
+  geom_point()
+```
+
+```{r attempt hand calculation of variance}
+eusilcA_smp %>% 
+  data.table() %>% 
+  .[, wgt_mean := weighted.mean(eqIncome, w = weight),
+    by = district] %>% 
+  .[j = sq_e := (eqIncome - wgt_mean)^2] %>% 
+  .[, .(mean = unique(wgt_mean),
+        mean_diff = mean(eqIncome - wgt_mean),
+        mean_sq_e = weighted.mean(sq_e, w = weight) / sum(weight),
+        var = var(eqIncome)/ sum(weight)),
+    by = district] %>% 
+  filter(district == "Amstetten")
+eusilcA_smpAgg  %>% filter(Domain == "Amstetten")
+emdi_direct$ind %>% filter(Domain == "Amstetten")
+emdi_direct$MSE %>% filter(Domain == "Amstetten")
+# My hand calculation of average agrees with direct() and not the sample aggregate...
+  # For Amstetten -- 
+  # EMDI direct MSE               = 384394.6
+  # eusilc sample Agg -- Var_Mean = 926167.4
+  # my var calc                   = 41713943 ... >100x the direct MSE
+# My hand calculation of variance still doesn't correspond with anything here
+
+
+```
+
+
+```{r direct estimation -- dfss -- using different methods}
+# Our application is not (really) with a continuous measure, but with shares
+# of income in thresholds for households of a given type (e.g. with )
+system.time({
+dfss_direct_thresh <- 
+  direct(y = "poverty_dec", 
+         smp_data = acs1microdata_child05_cook, 
+         smp_domains = "PUMA", 
+         weights = "PERWT", 
+         threshold = 1.0, 
+         var = TRUE, 
+         boot_type = "naive", 
+         B = B, 
+         seed = 123, 
+         X_calib = NULL, 
+         totals = NULL, 
+         na.rm = TRUE)
+})
+# Note: estimation time for ages 0-5 for all IL is 417 seconds. Subset to Cook,
+# it's 0.70 seconds.
+
+system.time({
+dfss_direct_pct <- 
+  direct(y = "hs_qual", 
+         smp_data = acs1microdata_child05_cook, 
+         smp_domains = "PUMA", 
+         weights = "PERWT", 
+         var = TRUE, 
+         threshold = NULL,
+         boot_type = "naive", 
+         B = 50, 
+         seed = 123, 
+         na.rm = TRUE)
+})
+# Time with B = 5 is 0.5 seconds. With B = 20 is 2.3. With B = 50 is 4.42 ... roughly linear
+df <- data.frame(mse_B5  = dfss_direct_pct_B5$MSE$Mean,
+                 mse_B50 = dfss_direct_pct_B50$MSE$Mean)
+ggplot(data = df, aes(mse_B5, mse_B50)) + geom_point() + coord_fixed() + geom_abline(slope = 1, intercept = 0) + geom_smooth()
+```
+
+
+```{r check dfss direct estimates}
+dfss_direct_check <- 
+  acs1microdata_child05_cook %>% 
+  .[j = `:=`(pct_pov = weighted.mean(poverty_dec < 1.0, w = PERWT),
+             avg_pov = weighted.mean(poverty_dec,       w = PERWT)),
+    by = PUMA] %>% 
+  .[j = `:=`(pct_sq_err = ((poverty_dec < 1.0) - pct_pov)^2,
+             avg_sq_err = ( poverty_dec        - avg_pov)^2)] %>% 
+  .[, .(pct_pov_byhand = unique(pct_pov),
+        avg_pov_byhand = unique(avg_pov),
+        pct_mean_sq_err       = weighted.mean(pct_sq_err, w = PERWT) / sum(PERWT),
+        pct_mean_sq_err_unwgt = weighted.mean(pct_sq_err, w = PERWT) / .N,
+        avg_mean_sq_err       = weighted.mean(avg_sq_err, w = PERWT) / sum(PERWT),
+        avg_mean_sq_err_unwgt = weighted.mean(avg_sq_err, w = PERWT) / .N),
+    by = PUMA] %>% 
+  .[j = PUMA := as.factor(PUMA)]
+
+dfss_direct_comp <- 
+  dfss_direct_check %>% 
+  merge(dfss_direct_thresh$ind %>% select(PUMA = Domain, pct_pov_thresh     = Poverty_Gap, avg_pov     = Mean), by = "PUMA") %>% 
+  merge(dfss_direct_thresh$MSE %>% select(PUMA = Domain, pct_pov_thresh_MSE = Poverty_Gap, avg_pov_MSE = Mean), by = "PUMA") %>% 
+  merge(dfss_direct_pct$ind    %>% select(PUMA = Domain, pct_pov_nonthresh     = Mean),                         by = "PUMA") %>% 
+  merge(dfss_direct_pct$MSE    %>% select(PUMA = Domain, pct_pov_nonthresh_MSE = Mean),                         by = "PUMA")
+  
+dfss_direct_comp %>% 
+  head() %>% 
+  print()
+```
+
+Takeaways -- 
+
+1. The by-hand and "thresh" values for average poverty ratio are identical. Also, the by-hand and non-threshold poverty 
+2. However, the "threshold" calculation of poverty gap is not the same as the average poverty rate. Note -- that's because the [poverty gap](https://en.wikipedia.org/wiki/Poverty_gap_index) is actually a separate notion. See the calculation in the next chunk.
+  - However, what's curious is that although the threshold-based poverty gap and the % poverty have the same MSE. **This is something to understand better.**
+3. The MSE coming from direct()--i.e. `pct_pov_nonthresh_MSE`--is larger than the by-hand calculation `pct_mean_sq_err`. One potential explanation is that the latter is presuming that our effective sample is based on the weights, although that's not true. Using the sample N--instead of sum of the weights--in the MSE calculation gets within an order of magnitude.
+
+Attempt to replicate the poverty gap index calculation produced by direct().
+
+```{r investigate why threshold methods are not producing pct poverty calculations}
+# From Wikipedia, the poverty gap index is calculated among those below the
+# poverty line, averaging the ratio of amount of shortfall to poverty line
+#   see: 
+acs1microdata_child05_cook[poverty_dec < 1.0,
+                           j =  .(gap = weighted.mean(1.0 - poverty_dec, w = PERWT)),
+                           by = .(PUMA)] %>% 
+  .[order(PUMA)]
+# This seems like it should have gotten it, but doesn't...
+
+# Alternate calculation
+acs1microdata_child05_cook %>% 
+  filter(poverty_dec < 1.0) %>% 
+  mutate(pov_shortfall = 1 - poverty_dec) %>% 
+  group_by(PUMA) %>% 
+  summarize(avg_gap = weighted.mean(pov_shortfall, w = PERWT)) %>% 
+  arrange(PUMA) %>% 
+  head()
+# Same result (which is a relief)
+
+# Current takeaway is to use our own calculation of target variable--e.g.
+# binary indicator of income-to-poverty being below threshold--as something
+# that we understand
+```
+
+## Develop Model-Based Estimates
+
+### Combine data
+
+```{r emdi}
+combined_data_emdi <- 
+  combine_data(
+    pop_data = eusilcA_popAgg,
+    pop_domains = "Domain",
+    smp_data = eusilcA_smpAgg,
+    smp_domains = "Domain")
+```
+
+
+```{r dfss -- make assumptions to bring PUMA-level share data down to tract}
+# First thought is to do this with ratio of population sizes, which we have
+# available as the population denominator of the share
+# If the share is `s`, se is `s_se`, N is the full PUMA N, and n_i is the size 
+# of each smaller tract i, I believe the s_se_i should be
+#   sqrt(s_se^2*N/n_i) = s_se*sqrt(N/n_i)  
+
+dfss_direct_tract <- 
+  acs5tract %>% 
+  merge(crosswalk %>% select(TRACTFIP, PUMA), 
+        by = "TRACTFIP") %>%
+  .[COUNTYFIP == 31] %>% 
+  .[j = PUMA := as.factor(PUMA)] %>% 
+  .[j = n_pt := age_0to3_count + age_3to4_count + age_5to5_count] %>% 
+  .[j = n_p  := sum(n_pt), by = PUMA]
+
+# Check for tracts with zero population
+dfss_direct_tract[n_pt == 0]
+
+# We need to subset away from zero population tracts (or find some other way to
+# incorporate them)
+dfss_direct_tract <- 
+  dfss_direct_tract %>% 
+  .[n_pt != 0] %>% # 
+  merge(dfss_direct_pct$ind %>% select(PUMA = Domain, pct_hs_qual     = Mean), by = "PUMA") %>% 
+  merge(dfss_direct_pct$MSE %>% select(PUMA = Domain, pct_hs_qual_mse = Mean), by = "PUMA") %>% 
+  .[j = pct_hs_qual_se_tract := sqrt(pct_hs_qual_mse*n_p/n_pt)] %>% 
+  .[j = cv := pct_hs_qual_se_tract^2 / pct_hs_qual]
+
+# /!\ NSM: Will need to calculate multiple N and n values, for each given 
+# denominator, e.g. age group
+```
+
+
+```{r dfss -- build combined data}
+
+controls <- paste0(c("employrate_m", "employrate_f", "lfrate_m", "lfrate_f", 
+                     "incpov_r0to50", "incpov_r50to74", "incpov_r75to99",
+                     "f_lesshs", "m_lesshs", "f_hsgrad", "m_hsgrad"),
+                   "_est")
+
+population_agg <- 
+  acs5tract %>% 
+  filter(TRACTFIP %in% dfss_direct_tract$TRACTFIP) %>% 
+  select(one_of("TRACTFIP", controls))
+
+combined_data_dfss <- 
+  combine_data(
+    pop_data = population_agg,
+    pop_domains = "TRACTFIP",
+    smp_data = dfss_direct_tract %>% select(TRACTFIP, pct_hs_qual, pct_hs_qual_se_tract),
+    smp_domains = "TRACTFIP")
+```
+
+### Perform model selection
+
+```{r emdi -- model selection}
+system.time({
+  fh(fixed = Mean ~ cash + self_empl + unempl_ben,
+     vardir = "Var_Mean", 
+     combined_data = combined_data_emdi,
+     domains = "Domain", 
+     method = "ml", 
+     MSE = TRUE,
+     B = c(1000,0)) -> fh_std_1000_0_mseTRUE
+}) 
+# Time is linear in the second B argument, and constant with respect to the first.
+# This is true whether MSE = TRUE or not.
+# The default is c(50,0). Documentation explains: The single number or the first 
+# element defines the number of bootstrap iterations when a bootstrap MSE 
+# estimator is chosen. When the standard FH model is applied and the information
+# criteria by Marhuenda et al. (2014) should be computed, the second element of
+# B is needed and must be greater than 1. Defaults to c(50,0). For practical 
+# applications, values larger than 200 are recommended.
+
+# identical(fh_std_1000_0$model$coefficients, fh_std_0_50$model$coefficients)
+# # was TRUE
+
+system.time({
+  (model_select_emdi <- step(fh_std, criteria = "KICb2"))
+  selected_formula_emdi <- model_select_emdi$call[2] %>% as.character() %>% as.formula()
+})
+```
+
+```{r dfss -- model selection}
+y <- "pct_hs_qual"
+#controls <- "f_lesshs_est" # -- a simple specification for testing runs
+
+fm_s <- 
+  paste0(y, " ~ ", 
+         paste(controls, collapse = " + ")) %>% 
+  as.formula()
+
+system.time({
+dfss_std <- fh(fixed = fm_s,
+               vardir = glue("{y}_se_tract"), 
+               combined_data = combined_data_dfss,
+               domains = "TRACTFIP", 
+               method = "ml", 
+               B = c(50, 0))
+})
+
+(model_select_dfss <- step(dfss_std, criteria = "KICb2"))
+selected_formula <- model_select_dfss$call[2] %>% as.character() %>% as.formula()
+```
+
+### Estimate selected model
+
+```{r emdi -- model estimation and display}
+fh_std_selected <- 
+  fh(fixed = selected_formula_emdi,
+     vardir = "Var_Mean", 
+     combined_data = combined_data_emdi,
+     domains = "Domain", 
+     method = "ml", 
+     MSE = TRUE,
+     B = c(50, 0))
+summary(fh_std)
+summary(fh_std_selected)
+```
+
+```{r dfss -- model estimation and display}
+system.time({
+dfss_std_selected <- 
+  fh(fixed = selected_formula_dfss,
+     vardir = glue("{y}_se_tract"), 
+     combined_data = combined_data_dfss,
+     domains = "TRACTFIP", 
+     method = "ml", 
+     MSE = TRUE,
+     B = c(50, 0))
+summary(dfss_std)
+summary(dfss_std_selected)
+})
+```
+
+### Examine output
+
+```{r}
+compare_plot(fh_std_selected, CV = TRUE, label = "no_title")
+```
+
+```{r}
+compare_plot(dfss_std_selected, CV = TRUE, label = "no_title")
+```
+
+## Test intuition
+
+### Confirm calculation of blending weights of direct/model estimates
+
+```{r}
+# From the Fay-Herriott example
+data("eusilcA_popAgg")
+data("eusilcA_smpAgg")
+
+# Combine sample and population data
+combined_data <- combine_data(pop_data = eusilcA_popAgg, pop_domains = "Domain",
+                              smp_data = eusilcA_smpAgg, smp_domains = "Domain")
+
+# Example from the `fh()` help file
+fh_std <- fh(fixed = Mean ~ cash + self_empl, vardir = "Var_Mean",
+             combined_data = combined_data, domains = "Domain", method = "ml", 
+             MSE = TRUE)
+
+df <- 
+  data.frame(direct     = fh_std$ind$Direct,
+             direct_var = fh_std$MSE$Direct,
+             model      = fh_std$model$fitted,
+             model_var  = fh_std$model$variance,
+             fh         = fh_std$ind$FH,
+             fh_var     = fh_std$MSE$FH) %>% 
+  mutate(implied_wgt = (fh - model)/(direct - model),
+         var_ratio_dir = direct_var / (direct_var + model_var),
+         var_ratio_mod = model_var  / (direct_var + model_var))
+# Checks out
+```
+
+### Examine the impact on results of inflating the variance of the direct estimates
+
+```{r examine what happens to both direct and model variances when direct MSE is inflated}
+# This reflects the assumption that we're looking to make, assuming that PUMA-
+# level shares apply to corresponding tracts, but with an upward adjustment
+# of their standard errors to reflect the fact that they reflect sample data
+# for smaller geographies
+
+
+data("eusilcA_popAgg")
+data("eusilcA_smpAgg")
+
+# Combine sample and population data
+combined_data <- combine_data(pop_data = eusilcA_popAgg, 
+                              pop_domains = "Domain",
+                              smp_data = eusilcA_smpAgg %>% mutate(Var_Mean_x_10 = Var_Mean*10), 
+                              smp_domains = "Domain")
+
+fh_std <- 
+  fh(fixed = Mean ~ cash + self_empl, 
+     vardir = "Var_Mean",
+     combined_data = combined_data, 
+     domains = "Domain", 
+     method = "ml", 
+     MSE = TRUE)
+
+fh_std_x_10 <- 
+  fh(fixed = Mean ~ cash + self_empl, 
+     vardir = "Var_Mean_x_10",
+     combined_data = combined_data, 
+     domains = "Domain", 
+     method = "ml", 
+     MSE = TRUE)
+
+collected <- 
+  data.frame(direct       = fh_std$ind$Direct,
+             model        = fh_std$model$fitted,
+             fh           = fh_std$ind$FH,
+             direct_mse   = fh_std$ind$Direct,
+             model_mse    = fh_std$model$fitted,
+             fh_mse       = fh_std$ind$FH,
+             direct10     = fh_std_x_10$ind$Direct,
+             model10      = fh_std_x_10$model$fitted,
+             fh10         = fh_std_x_10$ind$FH,
+             direct10_mse = fh_std_x_10$MSE$Direct,
+             model10_mse  = fh_std_x_10$model$variance,
+             fh10_mse     = fh_std_x_10$MSE$FH)
+```
+
+
+```{r check results of direct model and fh}
+# Very counter-intuitively (to me), having a higher variance no only increases
+# the MSE of the direct estimate, but also *decreases* the MSE of the model
+# method. 
+head(collected)
+```
+
+```{r}
+# That must be related to the performance of the EBLUP, as it considers the
+# random effect, which is many orders of magnitude smaller. In EBLUP theory,
+# the random effect is basically the amount beyond the fixed component that
+# we believe will predict the given value. Although my grasp of that theory is 
+# still tentative, that's basically a shrinkage. For a given variance of the 
+# outcome ("Mean") values, and a given ability to predict those with a fixed
+# set of predictors ... the lower our prior about noise of the outcomes, the
+# more we think that farther-out outcomes are outliers, and the more we want
+# to shrink them back to the mean for the sake of better prediction. The
+# higher the prior around noise, the less we want to shrink, and so the smaller 
+# the random effect for prediction.
+
+cbind(     fh_std$model$random_effects, 
+      fh_std_x_10$model$random_effects) %>% 
+  head()
+
+```
+
+```{r}
+# With the lower prior noise of the outcomes, the larger the variance in random 
+# effects, the smaller I'd expect the regression error to be. Correspondingly,
+# the higher the prior (the x10 version), the higher I'd expect the regression
+# error. However:
+c( "model variance (lower outcome var)" =      fh_std$model$variance, 
+   "model variance (x10 outcome var)"   = fh_std_x_10$model$variance)
+
+```
+
+Check if the `sae` package exhibits the same phenomenon, using its standard package.
+
+```{r}
+if (!"sae" %in% installed.packages()[, "Package"]) install.package("sae")
+library(sae)
+data(milk)
+
+
+resultREML        <- with(milk, eblupFH(yi ~ as.factor(MajorArea), SD^2))
+   mseREML        <- with(milk,   mseFH(yi ~ as.factor(MajorArea), SD^2))
+resultREML_sq     <- with(milk, eblupFH(yi ~ as.factor(MajorArea), SD^4))
+   mseREML_sq     <- with(milk,   mseFH(yi ~ as.factor(MajorArea), SD^4))
+resultREML_sqx10  <- with(milk, eblupFH(yi ~ as.factor(MajorArea), SD^4*10))
+   mseREML_sqx10  <- with(milk,   mseFH(yi ~ as.factor(MajorArea), SD^4*10))
+resultREML_sqx100 <- with(milk, eblupFH(yi ~ as.factor(MajorArea), SD^4*100))
+   mseREML_sqx100 <- with(milk,   mseFH(yi ~ as.factor(MajorArea), SD^4*100))
+resultREML_sqrt   <- with(milk, eblupFH(yi ~ as.factor(MajorArea), SD*2))
+  # Didn't run with just `vardir` = SD
+
+results <- list(resultREML_sqrt, resultREML, resultREML_sq, resultREML_sqx10, resultREML_sqx100)
+mse_results <- list(mseREML, mseREML_sq, mseREML_sqx10, mseREML_sqx100)
+  # After inspecting results, seems like the mseFH function yields strictly more than
+  # eblupFH, specifically the mse
+```
+
+```{r compare betas}
+
+Reduce(cbind,
+       lapply(results, function(x) x$fit$estcoef[, c("beta", "pvalue")]))
+
+# The model component does not seem to be affected
+```
+
+```{r compare random effects variance}
+
+Reduce(cbind,
+       lapply(results, function(x) x$fit$refvar %>% round(3)))
+# Non-monotonic change
+```
+
+```{r compare eblup values}
+eblup_fit <- 
+  cbind(milk$yi,
+      Reduce(cbind,
+       lapply(results, function(x) x$eblup))) %>% 
+  as.data.frame() %>% 
+  setnames(c("obs", "sqrt", "var", "sq", "sqx10", "sqx100"))
+# Interestingly non-monotonic. Not quite sure how to interpret that
+```
+
+```{r correlate eblup}
+cor(eblup_fit)
+```
+
+```{r examine distributions}
+eblup_fit %>% 
+  pivot_longer(everything()) %>% 
+  ggplot(aes(x = value, 
+             color = name)) +
+  geom_density() +
+  theme_minimal() -> my_plot
+ggplotly(my_plot)
+
+# It's tempting to indicate that 
+```
+
+```{r compare the MSE}
+Reduce(cbind,
+       lapply(mse_results, function(x) x$mse))
+# This certainly shows differences. But why on earth is this non-monotonic?
+# There *are* non-linear functions involved.
+
+cbind(mseREML$mse,
+      mseREML_sq$mse,
+      mseREML_sqx10$mse,
+      mseREML_sqx100$mse)
+```
+
+
+## Extract Results
+
+```{r}
+estimators(fh_std_selected)
+```
+
+```{r}
+estimators(dfss_std_selected)
+```
+

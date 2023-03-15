@@ -1,0 +1,621 @@
+---
+title: "Analyzing Family Income in the Current Population Survey"
+author: "Michele Carter"
+output: html_document
+---
+
+This document analyzes how the measure of family income used in the Basic Monthly sample of the CPS changes when we include the income of unmarried parent partners. The measure of family income used in the Basic Monthly sample includes all income earned by individuals related by blood, marriage, or adoption to the head of household. This analysis uses data from the 2019 ASEC sample of the CPS.
+
+```{r setup, include=FALSE, echo=FALSE, warnings=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# --------------------------------------# 
+# PURPOSE: This file compares the measure of family income used in the March Basic Monthly sample
+# of the Current Population Survey (CPS) to a measure of family income that includes the income
+# of unmarried parent partners. This analysis uses data from March 2019.
+
+# Family income in the March Basic Monthly sample is defined as total income for all members of the
+# household who are related to the head of householder. 
+
+# DATA SETS USED BY THIS CODE: cps_20200923.csv (IPUMS extract)
+# R VERSION: 3.6.3
+
+# AUTHOR: Michele Carter
+# DATE CREATED: 2020-09-22
+# --------------------------------------#
+
+# Load packages
+
+packages.list <- c("knitr", "dplyr", "data.table", "tidyr", "ggplot2", "scales", "ipumsr")
+for (p in packages.list) {
+  if (!p %in% installed.packages()[, "Package"]) install.packages(p)
+  library(p, character.only = TRUE)
+}
+
+# Identify directory locations
+
+input <- "../input"
+output <- "../output"
+
+```
+
+```{r import documentation, echo=FALSE, warnings=FALSE, message=FALSE}
+
+if (FALSE){
+  documentation <- read_ipums_ddi(file.path(input, "cps_20200923.xml"))
+  ipums_view(documentation)
+}
+
+```
+
+```{r import data, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Import basic monthly and ASEC CPS data for contiguous US.
+# I drop HI and AK, which follow different federal poverty guidelines than other states.
+# Keep families that belong to the ASEC sample in 2019. Drop families in the ASEC oversample (CPSID==0).
+
+cps <- data.table(read.csv(file = file.path(input, "cps_20200923.csv.gz"))) %>%
+       .[(STATEFIP!=2) & (STATEFIP!=15) & (ASECFLAG==1) & (YEAR==2019) & (CPSID>0)] 
+
+```
+
+```{r construct family income measures, include=FALSE, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Process income variables. Keep head of householder families only.
+
+cps <-
+  cps %>%
+  .[, `:=`(INCTOT = ifelse((INCTOT==999999998) | (INCTOT==999999999), NaN, INCTOT),
+           FTOTVAL = ifelse(FTOTVAL==999999, NaN, FTOTVAL),
+           HHINCOME = ifelse(HHINCOME==99999999, NaN, HHINCOME))] %>%
+  .[, `:=`(income_hohunmarriedpartner = sum(1*(RELATE==1116 | RELATE==1117)*INCTOT, na.rm = TRUE),
+           female_hoh = max(1*(RELATE==101 & SEX==2))), by = "YEAR,CPSID"] %>%
+  .[FAMUNIT==1] %>%
+  .[, faminc_constructed := sum(INCTOT, na.rm = TRUE), by = "YEAR,CPSID"]
+
+# Construct income-to-poverty ratio using March CPS method (binned family income variable).
+
+cps <-
+  cps %>%
+  .[, `:=`(fam_size = .N,
+           fam_wgt = sum(ASECWT)), by = "YEAR,CPSID"] %>%
+  # /!\ NSM: Consider an easier to read and audit way of declaring mappings and merging them in
+  .[, `:=`(fpl_income = case_when(fam_size==1 ~ 12760, fam_size==2 ~ 17240, fam_size==3 ~ 21720, 
+                                      fam_size==4 ~ 26200, fam_size==5 ~ 30680, fam_size==6 ~ 35160,
+                                      fam_size==7 ~ 39640, fam_size==8 ~ 44120, fam_size > 8 ~ 44120 + (fam_size-8)*4480,
+                                      TRUE ~ NaN),
+           faminc_lb = case_when(FAMINC==100 ~ 0,
+                                  FAMINC==210 ~ 5000,  FAMINC==300 ~ 7500,  FAMINC==430 ~ 10000,
+                                  FAMINC==470 ~ 12500, FAMINC==500 ~ 15000, FAMINC==600 ~ 20000,
+                                  FAMINC==710 ~ 25000, FAMINC==720 ~ 30000, FAMINC==730 ~ 35000,
+                                  FAMINC==740 ~ 40000, FAMINC==820 ~ 50000, FAMINC==830 ~ 60000,
+                                  FAMINC==841 ~ 75000, FAMINC==842 ~ 100000,FAMINC==843 ~ 150000,
+                                  TRUE ~ NaN),
+           faminc_ub = case_when(FAMINC==100 ~ 5000,
+                                  FAMINC==210 ~ 7499, FAMINC==300 ~ 9999, FAMINC==430 ~ 12499,
+                                  FAMINC==470 ~ 14999, FAMINC==500 ~ 19999, FAMINC==600 ~ 24999,
+                                  FAMINC==710 ~ 29999, FAMINC==720 ~ 34999, FAMINC==730 ~ 39999,
+                                  FAMINC==740 ~ 49999, FAMINC==820 ~ 59999, FAMINC==830 ~ 74999,
+                                  FAMINC==841 ~ 99999, FAMINC==842 ~ 149999,
+                                  FAMINC==843 ~ 500000, # Note: there is no upper-bound for this income category, so I impute an upper bound of 500,000.
+                                  TRUE ~ NaN))] %>%
+  .[, faminc_randomdraw := runif(.N, faminc_lb, faminc_ub)] %>%
+  .[, `:=`(incpov_ratio = ((faminc_ub+faminc_lb)/2)/fpl_income,
+           incpov_ratio_draw = faminc_randomdraw/fpl_income)] %>%
+  # /!\ NSM: use cut() to simplify this, and maybe a single function to apply this twice
+  .[, `:=`(incpov_ratio_cat = case_when((incpov_ratio>=0) & (incpov_ratio<=0.5) ~ "0-50",
+                                    (incpov_ratio>0.5) & (incpov_ratio<=1) ~ "50-100",
+                                    (incpov_ratio>1) & (incpov_ratio<=1.5) ~ "100-150",
+                                    (incpov_ratio>1.5) & (incpov_ratio<=2) ~ "150-200",
+                                    (incpov_ratio>2) & (incpov_ratio<=2.5) ~ "200-250",
+                                    (incpov_ratio>2.5) & (incpov_ratio<=3) ~ "250-300",
+                                    (incpov_ratio>3)  ~ "300+"),
+           incpov_ratio_draw_cat = case_when((incpov_ratio_draw>=0) & (incpov_ratio_draw<=0.5) ~ "0-50",
+                                    (incpov_ratio_draw>0.5) & (incpov_ratio_draw<=1) ~ "50-100",
+                                    (incpov_ratio_draw>1) & (incpov_ratio_draw<=1.5) ~ "100-150",
+                                    (incpov_ratio_draw>1.5) & (incpov_ratio_draw<=2) ~ "150-200",
+                                    (incpov_ratio_draw>2) & (incpov_ratio_draw<=2.5) ~ "200-250",
+                                    (incpov_ratio_draw>2.5) & (incpov_ratio_draw<=3) ~ "250-300",
+                                    (incpov_ratio_draw>3)  ~ "300+"))] 
+
+# Construct income-to-poverty ratio using unbinned March CPS family income.
+
+cps <-
+  cps %>%
+  .[, fam_size_unbinned := .N, by = "YEAR,CPSID"] %>%
+  # /!\ NSM: ditto the above
+  .[, `:=`(fpl_income_unbinned = case_when(fam_size_unbinned==1 ~ 12760, fam_size_unbinned==2 ~ 17240, fam_size_unbinned==3 ~ 21720, 
+                                      fam_size_unbinned==4 ~ 26200, fam_size_unbinned==5 ~ 30680, fam_size_unbinned==6 ~ 35160,
+                                      fam_size_unbinned==7 ~ 39640, fam_size_unbinned==8 ~ 44120, 
+                                      fam_size_unbinned > 8 ~ 44120 + (fam_size_unbinned-8)*4480,
+                                      TRUE ~ NaN),
+           faminc_unbinned = faminc_constructed)] %>%
+  .[, incpov_ratio_unbinned := if_else(faminc_unbinned>0, faminc_unbinned/fpl_income, 0)] %>%
+  .[, incpov_ratio_cat_unbinned := case_when((incpov_ratio_unbinned>=0) & (incpov_ratio_unbinned<=0.5) ~ "0-50",
+                                    (incpov_ratio_unbinned>0.5) & (incpov_ratio_unbinned<=1) ~ "50-100",
+                                    (incpov_ratio_unbinned>1) & (incpov_ratio_unbinned<=1.5) ~ "100-150",
+                                    (incpov_ratio_unbinned>1.5) & (incpov_ratio_unbinned<=2) ~ "150-200",
+                                    (incpov_ratio_unbinned>2) & (incpov_ratio_unbinned<=2.5) ~ "200-250",
+                                    (incpov_ratio_unbinned>2.5) & (incpov_ratio_unbinned<=3) ~ "250-300",
+                                    (incpov_ratio_unbinned>3)  ~ "300+")]  
+
+# Identify head of householder families with children 5 or under.
+
+cps <-
+  cps %>%
+  .[, `:=`(under5_family = 1*(sum(1*(AGE>=0 & AGE<=5))>0),
+           under5_hohchildren = 1*(sum(1*(AGE>=0 & AGE<=5 & (RELATE==301 | RELATE==303)))>0)), by = "YEAR,CPSID"]
+
+# Identify head of householder families where: 
+# (1) two parents are present, for at least one of head of householder's children 5 or under, and
+# (2) head of householder has an unmarried partner present who earns income > 0. 
+# For these households, family income in March CPS will not coincide with family income used to determine program eligibility.
+
+cps <-
+  cps %>%
+  .[, `:=`(parents_present_5under = under5_hohchildren*(1*(PEPAR1TYP>0) + 1*(PEPAR2TYP>0))), by = "YEAR,CPSIDP"] %>%
+  .[, `:=`(max_parents_present_5under = max(parents_present_5under)), by = "YEAR,CPSID"] %>%
+  .[, `:=`(flag_hohunmarriedpartner = 1*(max_parents_present_5under==2 & income_hohunmarriedpartner>0))]
+
+# Construct income-to-poverty ratio using unbinned March CPS family income variable plus unmarried parent partner income.
+
+cps <-
+  cps %>%
+  .[, fam_size_hohunmarriedpartner := if_else(flag_hohunmarriedpartner==1, as.integer(.N+1), as.integer(.N)), by = "YEAR,CPSID"] %>%
+  # /!\ NSM: ditto the above
+  .[, `:=`(fpl_income_hohunmarriedpartner = case_when(fam_size_hohunmarriedpartner==1 ~ 12760, fam_size_hohunmarriedpartner==2 ~ 17240, fam_size_hohunmarriedpartner==3 ~ 21720, 
+                                      fam_size_hohunmarriedpartner==4 ~ 26200, fam_size_hohunmarriedpartner==5 ~ 30680, fam_size_hohunmarriedpartner==6 ~ 35160,
+                                      fam_size_hohunmarriedpartner==7 ~ 39640, fam_size_hohunmarriedpartner==8 ~ 44120, 
+                                      fam_size_hohunmarriedpartner > 8 ~ 44120 + (fam_size_hohunmarriedpartner-8)*4480,
+                                      TRUE ~ NaN),
+           faminc_hohunmarriedpartner = ifelse(flag_hohunmarriedpartner==1, faminc_constructed + income_hohunmarriedpartner, faminc_constructed))] %>%
+  .[, incpov_ratio_hohunmarriedpartner := if_else(faminc_hohunmarriedpartner>0, faminc_hohunmarriedpartner/fpl_income,0)] %>%
+  .[, incpov_ratio_cat_hohunmarriedpartner := case_when((incpov_ratio_hohunmarriedpartner>=0) & (incpov_ratio_hohunmarriedpartner<=0.5) ~ "0-50",
+                                    (incpov_ratio_hohunmarriedpartner>0.5) & (incpov_ratio_hohunmarriedpartner<=1) ~ "50-100",
+                                    (incpov_ratio_hohunmarriedpartner>1) & (incpov_ratio_hohunmarriedpartner<=1.5) ~ "100-150",
+                                    (incpov_ratio_hohunmarriedpartner>1.5) & (incpov_ratio_hohunmarriedpartner<=2) ~ "150-200",
+                                    (incpov_ratio_hohunmarriedpartner>2) & (incpov_ratio_hohunmarriedpartner<=2.5) ~ "200-250",
+                                    (incpov_ratio_hohunmarriedpartner>2.5) & (incpov_ratio_hohunmarriedpartner<=3) ~ "250-300",
+                                    (incpov_ratio_hohunmarriedpartner>3)  ~ "300+")]   
+
+# Produce family-level data set.
+
+cps <-
+  cps %>%
+  .[, c("YEAR", "CPSID", "fam_wgt", "incpov_ratio_cat_unbinned", "incpov_ratio_cat","incpov_ratio_draw_cat", "incpov_ratio_cat_hohunmarriedpartner", "incpov_ratio_unbinned", "incpov_ratio", "incpov_ratio_hohunmarriedpartner", 
+        "under5_family", "under5_hohchildren", "flag_hohunmarriedpartner", "female_hoh")] %>%
+  unique()
+
+cps %>% group_by(CPSID) %>% summarize(count = n()) %>% group_by(count) %>% tally()
+
+```
+
+## What share of households in the ASEC sample include an unmarried parent partner who earns income > 0? {.tabset}
+
+The tables below report the share of families in the ASEC sample with at least one child under age six that include an unmarried parent partner who earns income > 0, calculated separately for each income-to-poverty ratio category.   
+
+  * I determine each family's income-to-poverty ratio category using the binned measure of family income that is used in the Basic Monthly sample of the CPS. For each family, I assign family income as a random draw from the family income bin to which the family belongs. This measure of family income includes the income for all individuals related by blood, marriage, or adoption to the head of household, but does not include the income of any unmarried partners who may reside in the household.      
+  * I identify a family as including an unmarried parent partner who earns income > 0 if (1) the head of household lives with an unmarried partner, (2) the unmarried partner is the parent to at least one of the head of household's children, and (3) the unmarried partner receives income > 0.
+
+<br>   
+
+```{r measure presence of unmarried parent partners, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Write a function to produce statistics of interest.
+
+calculate_probs <- function(input_data, prob_cell_list, mean_variable) {
+  
+  probs <-
+    input_data %>%
+    .[, prob := lapply(.SD, weighted.mean, w=fam_wgt),
+      by = prob_cell_list, 
+      .SDcols = c(mean_variable)] %>%
+    .[, c(prob_cell_list, "prob"), with = FALSE] %>%
+    unique() 
+  
+  return(probs)
+}
+
+```
+
+### All Families
+
+```{r, echo = FALSE} 
+
+# Identify share of head of householder families with children under 5 where March CPS family income does not (and should) include income of
+# an unmarried partner whose income > 0 and who is a parent to at least one of head of householder's children.
+
+kable(
+calculate_probs(cps %>% .[under5_family==1], c("incpov_ratio_cat"), "flag_hohunmarriedpartner") %>% 
+  mutate(incpov_ratio_cat = factor(incpov_ratio_cat, levels = c("0-50", "50-100", "100-150", "150-200", "200-250", "250-300", "300+"))) %>%
+  .[order(incpov_ratio_cat)] %>%
+  rename("Income-to-Poverty Ratio" = "incpov_ratio_cat", "Share of Families with Unmarried Parent Partner" = "prob")
+)
+
+```
+
+<br>   
+
+### Female Head of Household
+
+```{r, echo = FALSE}
+
+kable(
+calculate_probs(cps %>% .[(under5_family==1) & (female_hoh==1)], c("incpov_ratio_cat"), "flag_hohunmarriedpartner") %>% 
+  mutate(incpov_ratio_cat = factor(incpov_ratio_cat, levels = c("0-50", "50-100", "100-150", "150-200", "200-250", "250-300", "300+"))) %>%
+  .[order(incpov_ratio_cat)] %>%
+  rename("Income-to-Poverty Ratio" = "incpov_ratio_cat", "Share of Families with Unmarried Parent Partner" = "prob")
+)
+
+```
+
+<br>   
+
+### Male Head of Household
+
+```{r, echo = FALSE}
+
+kable(
+calculate_probs(cps %>% .[(under5_family==1) & (female_hoh==0)], c("incpov_ratio_cat"), "flag_hohunmarriedpartner") %>% 
+  mutate(incpov_ratio_cat = factor(incpov_ratio_cat, levels = c("0-50", "50-100", "100-150", "150-200", "200-250", "250-300", "300+"))) %>%
+  .[order(incpov_ratio_cat)] %>%
+  rename("Income-to-Poverty Ratio" = "incpov_ratio_cat", "Share of Families with Unmarried Parent Partner" = "prob")
+)
+
+```
+
+
+<br>   
+
+## Histogram for the income-to-poverty ratio, using different measures of family income {.tabset}
+
+The plots below contain the histogram for the income-to-poverty ratio, calculated at the family level. I produce the income-to-poverty ratio using four separate measures of family income (and the corresponding measure of household size): 
+
+  (1) the binned March CPS family income variable, where I assign family income as the midpoint of the bin;   
+  (2) the binned March CPS family income variable, where I assign family income as a random draw from the bin;   
+  (3) the unbinned March CPS family income variable (calculated as the sum of the incomes earned by each of the household members related to the head of household; this may not be exactly equal to the measure of family income used to produce the binned March CPS family income variable, since that variable was constructed using an aggregate measure reported directly by the head of household); and  
+  (4) the unbinned March CPS family income variable plus the income of any unmarried parent partners who reside in the household.
+
+<br>   
+
+### All Families
+
+#### All Incomes
+
+```{r, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Prepare data for histogram plot.
+
+barplot <- cps %>% .[under5_family==1 & !(is.na(incpov_ratio_draw_cat))] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_draw_cat"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_draw_cat, Type = "Binned March CPS (Random Draw)")] %>% 
+                   .[, -c("incpov_ratio_draw_cat"), with = FALSE] %>%
+                    unique()
+barplot <- rbind(barplot,
+                 cps %>% 
+                   .[under5_family==1 & !(is.na(incpov_ratio_cat))] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat"] %>% 
+                   .[, `:=`(Type = "Binned March CPS (Midpoint)")] %>%
+                    unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[under5_family==1 & !(is.na(incpov_ratio_cat_unbinned))] %>%
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_unbinned"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_unbinned, Type = "Unbinned March CPS")] %>% 
+                   .[, -c("incpov_ratio_cat_unbinned"), with = FALSE] %>%
+                    unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[under5_family==1 & !(is.na(incpov_ratio_cat_hohunmarriedpartner))] %>%
+                   .[, total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_hohunmarriedpartner"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_hohunmarriedpartner, Type = "Unbinned March CPS + Unmarried Partner Income")] %>% 
+                   .[, -c("incpov_ratio_cat_hohunmarriedpartner"), with = FALSE] %>%
+                    unique())
+
+```
+
+```{r, fig.width = 9, fig.height = 6, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Produce plot.
+
+ggplot(barplot %>% mutate(name = factor(incpov_ratio_cat, levels = c("0-50", "50-100", "100-150", "150-200", "200-250", "250-300", "300+"))), 
+       aes(x = name, y = countvar, fill = as.factor(Type))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Histogram for Income-to-Poverty Ratio,\nFamilies with Children Age 5 and Under", y = "Share of Families", x = "Income-to-Poverty Ratio") +
+  guides(fill = guide_legend("Family Income Variable")) +
+  theme(axis.text.x = element_text(angle=45))
+
+```
+
+#### Income < 250% FPL
+
+```{r, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Prepare data for histogram plot.
+
+barplot <- cps %>% .[under5_family==1 & !(is.na(incpov_ratio_draw_cat)) &
+                       !(incpov_ratio_draw_cat=="250-300" | incpov_ratio_draw_cat=="300+")] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_draw_cat"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_draw_cat, Type = "Binned March CPS (Random Draw)")] %>% 
+                   .[, -c("incpov_ratio_draw_cat"), with = FALSE] %>%
+                    unique()
+barplot <- rbind(barplot,
+                 cps %>% 
+                   .[under5_family==1 & !(is.na(incpov_ratio_cat)) &
+                       !(incpov_ratio_cat=="250-300" | incpov_ratio_cat=="300+")] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat"] %>% 
+                   .[, `:=`(Type = "Binned March CPS (Midpoint)")] %>%
+                    unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[under5_family==1 & !(is.na(incpov_ratio_cat_unbinned)) &
+                       !(incpov_ratio_cat_unbinned=="250-300" | incpov_ratio_cat_unbinned=="300+")] %>%
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_unbinned"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_unbinned, Type = "Unbinned March CPS")] %>% 
+                   .[, -c("incpov_ratio_cat_unbinned"), with = FALSE] %>%
+                    unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[under5_family==1 & !(is.na(incpov_ratio_cat_hohunmarriedpartner)) &
+                       !(incpov_ratio_cat_hohunmarriedpartner=="250-300" | incpov_ratio_cat_hohunmarriedpartner=="300+")] %>%
+                   .[, total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_hohunmarriedpartner"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_hohunmarriedpartner, Type = "Unbinned March CPS + Unmarried Partner Income")] %>% 
+                   .[, -c("incpov_ratio_cat_hohunmarriedpartner"), with = FALSE] %>%
+                    unique()) %>%
+           .[!(incpov_ratio_cat=="250-300" | incpov_ratio_cat=="300+")]
+
+```
+
+```{r, fig.width = 9, fig.height = 6, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Produce plot.
+
+ggplot(barplot %>% mutate(name = factor(incpov_ratio_cat, levels = c("0-50", "50-100", "100-150", "150-200", "200-250"))), 
+       aes(x = name, y = countvar, fill = as.factor(Type))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Histogram for Income-to-Poverty Ratio,\nFamilies with Children Age 5 and Under", y = "Share of Families", x = "Income-to-Poverty Ratio") +
+  guides(fill = guide_legend("Family Income Variable")) +
+  theme(axis.text.x = element_text(angle=45))
+
+```
+
+<br>   
+<br>   
+<br>   
+<br>  
+
+### Female Head of Household
+
+#### All Incomes
+
+```{r, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Prepare data for histogram plot.
+
+barplot <- cps %>% .[(under5_family==1) & (female_hoh==1) & !(is.na(incpov_ratio_draw_cat))] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_draw_cat"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_draw_cat, Type = "Binned March CPS (Random Draw)")] %>% 
+                   .[, -c("incpov_ratio_draw_cat"), with = FALSE] %>%
+                   unique()
+barplot <- rbind(barplot,
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==1) & !(is.na(incpov_ratio_cat))] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat"] %>% 
+                   .[, `:=`(Type = "Binned March CPS (Midpoint)")] %>%
+                   unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==1) & !(is.na(incpov_ratio_cat_unbinned))] %>%
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_unbinned"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_unbinned, Type = "Unbinned March CPS")] %>% 
+                   .[, -c("incpov_ratio_cat_unbinned"), with = FALSE] %>%
+                   unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==1) & !(is.na(incpov_ratio_cat_hohunmarriedpartner))] %>%
+                   .[, total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_hohunmarriedpartner"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_hohunmarriedpartner, Type = "Unbinned March CPS + Unmarried Partner Income")] %>% 
+                   .[, -c("incpov_ratio_cat_hohunmarriedpartner"), with = FALSE] %>%
+                   unique())
+
+```
+
+```{r, fig.width = 9, fig.height = 6, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Produce plot.
+
+ggplot(barplot %>% mutate(name = factor(incpov_ratio_cat, levels = c("0-50", "50-100", "100-150", "150-200", "200-250", "250-300", "300+"))), 
+       aes(x = name, y = countvar, fill = as.factor(Type))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Histogram for Income-to-Poverty Ratio,\nFamilies with Children Age 5 and Under", y = "Share of Families", x = "Income-to-Poverty Ratio") +
+  guides(fill = guide_legend("Family Income Variable")) +
+  theme(axis.text.x = element_text(angle=45))
+
+```
+
+#### Income < 250% FPL
+
+```{r, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Prepare data for histogram plot.
+
+barplot <- cps %>% .[(under5_family==1) & (female_hoh==1) & !(is.na(incpov_ratio_draw_cat)) & 
+                       !(incpov_ratio_draw_cat=="250-300" | incpov_ratio_draw_cat=="300+")] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_draw_cat"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_draw_cat, Type = "Binned March CPS (Random Draw)")] %>% 
+                   .[, -c("incpov_ratio_draw_cat"), with = FALSE] %>%
+                    unique()
+barplot <- rbind(barplot,
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==1) & !(is.na(incpov_ratio_cat)) & 
+                       !(incpov_ratio_cat=="250-300" | incpov_ratio_cat=="300+")] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat"] %>% 
+                   .[, `:=`(Type = "Binned March CPS (Midpoint)")] %>%
+                    unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==1) & !(is.na(incpov_ratio_cat_unbinned)) & 
+                       !(incpov_ratio_cat_unbinned=="250-300" | incpov_ratio_cat_unbinned=="300+")] %>%
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_unbinned"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_unbinned, Type = "Unbinned March CPS")] %>% 
+                   .[, -c("incpov_ratio_cat_unbinned"), with = FALSE] %>%
+                    unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==1) & !(is.na(incpov_ratio_cat_hohunmarriedpartner)) & 
+                       !(incpov_ratio_cat_hohunmarriedpartner=="250-300" | incpov_ratio_cat_hohunmarriedpartner=="300+")] %>%
+                   .[, total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_hohunmarriedpartner"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_hohunmarriedpartner, Type = "Unbinned March CPS + Unmarried Partner Income")] %>% 
+                   .[, -c("incpov_ratio_cat_hohunmarriedpartner"), with = FALSE] %>%
+                    unique()) %>%
+           .[!(incpov_ratio_cat=="250-300" | incpov_ratio_cat=="300+")]
+
+```
+
+```{r, fig.width = 9, fig.height = 6, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Produce plot.
+
+ggplot(barplot %>% mutate(name = factor(incpov_ratio_cat, levels = c("0-50", "50-100", "100-150", "150-200", "200-250"))), 
+       aes(x = name, y = countvar, fill = as.factor(Type))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Histogram for Income-to-Poverty Ratio,\nFamilies with Children Age 5 and Under", y = "Share of Families", x = "Income-to-Poverty Ratio") +
+  guides(fill = guide_legend("Family Income Variable")) +
+  theme(axis.text.x = element_text(angle=45))
+
+```
+
+<br>   
+<br>   
+<br>   
+<br> 
+
+### Male Head of Household
+
+#### All Incomes
+
+```{r, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Prepare data for histogram plot.
+
+barplot <- cps %>% .[(under5_family==1) & (female_hoh==0) & !(is.na(incpov_ratio_draw_cat))] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_draw_cat"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_draw_cat, Type = "Binned March CPS (Random Draw)")] %>% 
+                   .[, -c("incpov_ratio_draw_cat"), with = FALSE] %>%
+                    unique()
+barplot <- rbind(barplot,
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==0) & !(is.na(incpov_ratio_cat))] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat"] %>% 
+                   .[, `:=`(Type = "Binned March CPS (Midpoint)")] %>%
+                    unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==0) & !(is.na(incpov_ratio_cat_unbinned))] %>%
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_unbinned"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_unbinned, Type = "Unbinned March CPS")] %>% 
+                   .[, -c("incpov_ratio_cat_unbinned"), with = FALSE] %>%
+                    unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==0) & !(is.na(incpov_ratio_cat_hohunmarriedpartner))] %>%
+                   .[, total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_hohunmarriedpartner"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_hohunmarriedpartner, Type = "Unbinned March CPS + Unmarried Partner Income")] %>% 
+                   .[, -c("incpov_ratio_cat_hohunmarriedpartner"), with = FALSE] %>%
+                    unique())
+
+```
+
+```{r, fig.width = 9, fig.height = 6, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Produce plot.
+
+ggplot(barplot %>% mutate(name = factor(incpov_ratio_cat, levels = c("0-50", "50-100", "100-150", "150-200", "200-250", "250-300", "300+"))), 
+       aes(x = name, y = countvar, fill = as.factor(Type))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Histogram for Income-to-Poverty Ratio,\nFamilies with Children Age 5 and Under", y = "Share of Families", x = "Income-to-Poverty Ratio") +
+  guides(fill = guide_legend("Family Income Variable")) +
+  theme(axis.text.x = element_text(angle=45))
+
+```
+
+#### Income < 250% FPL
+
+```{r, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Prepare data for histogram plot.
+
+barplot <- cps %>% .[(under5_family==1) & (female_hoh==0) & !(is.na(incpov_ratio_draw_cat)) & 
+                       !(incpov_ratio_draw_cat=="250-300" | incpov_ratio_draw_cat=="300+")] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_draw_cat"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_draw_cat, Type = "Binned March CPS (Random Draw)")] %>% 
+                   .[, -c("incpov_ratio_draw_cat"), with = FALSE] %>%
+                    unique()
+barplot <- rbind(barplot,
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==0) & !is.na(incpov_ratio_cat) &
+                       !(incpov_ratio_cat=="250-300" | incpov_ratio_cat=="300+")] %>% 
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat"] %>% 
+                   .[, `:=`(Type = "Binned March CPS (Midpoint)")] %>%
+                    unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==0) & !(is.na(incpov_ratio_cat_unbinned)) &
+                       !(incpov_ratio_cat_unbinned=="250-300" | incpov_ratio_cat_unbinned=="300+")] %>%
+                   .[,total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_unbinned"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_unbinned, Type = "Unbinned March CPS")] %>% 
+                   .[, -c("incpov_ratio_cat_unbinned"), with = FALSE] %>%
+                    unique())
+barplot <- rbind(barplot, 
+                 cps %>% 
+                   .[(under5_family==1) & (female_hoh==0) & !(is.na(incpov_ratio_cat_hohunmarriedpartner)) & 
+                       !(incpov_ratio_cat_hohunmarriedpartner=="250-300" | incpov_ratio_cat_hohunmarriedpartner=="300+")] %>%
+                   .[, total := sum(fam_wgt)] %>% 
+                   .[, .(countvar = sum(fam_wgt)/total), by = "incpov_ratio_cat_hohunmarriedpartner"] %>% 
+                   .[, `:=`(incpov_ratio_cat = incpov_ratio_cat_hohunmarriedpartner, Type = "Unbinned March CPS + Unmarried Partner Income")] %>% 
+                   .[, -c("incpov_ratio_cat_hohunmarriedpartner"), with = FALSE] %>%
+                    unique()) %>%
+           .[!(incpov_ratio_cat=="250-300" | incpov_ratio_cat=="300+")]
+
+```
+
+```{r, fig.width = 9, fig.height = 6, echo=FALSE, warnings=FALSE, message=FALSE}
+
+# Produce plot.
+
+ggplot(barplot %>% mutate(name = factor(incpov_ratio_cat, levels = c("0-50", "50-100", "100-150", "150-200", "200-250"))), 
+       aes(x = name, y = countvar, fill = as.factor(Type))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Histogram for Income-to-Poverty Ratio,\nFamilies with Children Age 5 and Under", y = "Share of Families", x = "Income-to-Poverty Ratio") +
+  guides(fill = guide_legend("Family Income Variable")) +
+  theme(axis.text.x = element_text(angle=45))
+
+```
+
+<br>   
+<br>   
+<br>   
+<br>   
