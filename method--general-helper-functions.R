@@ -127,7 +127,6 @@ bin_incpov_ratio <- function(incpov_ratio, pov_breaks = seq(0, 3, by = 0.5)) {
 
 # Recode industry codes -------------------------------------------------------#
 
-# See  ./documentation/2017-industry-code-list-with-crosswalk.xlsx for these codes
 bin_industry <- function(i) {
   case_when(between(i, 0170, 0490) ~ "ag",
             between(i, 0770, 0770) ~ "constr",
@@ -273,9 +272,9 @@ if (FALSE) {
               fam_size == 7 ~ 40120, 
               fam_size == 8 ~ 44660, 
               fam_size  > 8 ~ 44660 + (fam_size-8)*4540, 
-              # The $4540 figure for additional family members was not directly 
-              # indicated in the source table; it is extrapolating from the 
-              # difference between 7 and 8 family members
+              # Adding $4,540 for each additional person is documented in the 
+              # ASPE poverty guideline
+              # https://aspe.hhs.gov/sites/default/files/documents/d2eececdc1ca66dfd41ca1d2a524e076/HHS-Poverty-Guidelines-Fed-Register-2021.pdf 
               TRUE ~ NaN) 
   } 
   cbind(sapply(1:8, old_fpl),
@@ -422,11 +421,11 @@ label_vars <- function(var) {
                   "share_NotWorkElig_50_100"  = "HH Not Working, Inc-to-Pov: 50-100%",
                   "share_NotWorkElig_75_150"  = "HH Not Working, Inc-to-Pov: 75-150%",
                   "share_NotWorkElig_0_100"   = "HH Not Working, Inc-to-Pov: 0-100%",
-                  "share_NotWorkElig_100_200" = "HH Working, Inc-to-Pov: 100-200%",
-                  "share_NotWorkElig_150_225" = "HH Working, Inc-to-Pov: 150-225%",
-                  "share_NotWorkElig_200_300" = "HH Working, Inc-to-Pov: 200-300%",
-                  "share_NotWorkElig_225_300" = "HH Working, Inc-to-Pov: 225-300%",
-                  "share_NotWorkElig_300"     = "HH Working, Inc-to-Pov: 300%+",
+                  "share_NotWorkElig_100_200" = "HH Not Working, Inc-to-Pov: 100-200%",
+                  "share_NotWorkElig_150_225" = "HH Not Working, Inc-to-Pov: 150-225%",
+                  "share_NotWorkElig_200_300" = "HH Not Working, Inc-to-Pov: 200-300%",
+                  "share_NotWorkElig_225_300" = "HH Not Working, Inc-to-Pov: 225-300%",
+                  "share_NotWorkElig_300"     = "HH Not Working, Inc-to-Pov: 300%+",
                   
                   "share_NotWorkElig_SpousePresent"   = "HH Not Working, Spouse Present",
                   "share_WorkElig_SpousePresent"      = "HH Working, Spouse Present",
@@ -439,8 +438,8 @@ label_vars <- function(var) {
                   "incpov_r200to299_est"  = "Inc-to-Pov: 200-299%",
                   "f_lesshs_est"   = "Educ < HS, Female",
                   "m_lesshs_est"   = "Educ < HS, Male",
-                  "f_hsgrad_est"   = "Educ = HS, Female",
-                  "m_hsgrad_est"   = "Educ = HS, Male",
+                  "f_hsgrad_est"   = "Educ - HS, Female",
+                  "m_hsgrad_est"   = "Educ - HS, Male",
                   "f_somecoll_est" = "Educ - Some Coll, Female",
                   "m_somecoll_est" = "Educ - Some Coll, Male",
                   "f_coll_est" = "Educ - Coll, Female",
@@ -455,7 +454,7 @@ label_vars <- function(var) {
                   "lfrate_m_a2534_est"     = "LF Part Rate, Male Age 25-34",
                   "lfrate_f_a2534_est"     = "LF Part Rate, Female Age 25-34",
                   "lfrate_m_est"           = "LF Part Rate, Male",
-                  "lfrate_f_est"           = "LF Part Rate, Male")
+                  "lfrate_f_est"           = "LF Part Rate, Female")
          })
 }
 
