@@ -258,7 +258,7 @@ pop_age_groups_2020 <-
          moe_2020_02   = moe_product(totallt18_2020, per02_acs,   0, per02_moe),
          moe_2020_34   = moe_product(totallt18_2020, per34_acs,   0, per34_moe),
          moe_2020_5    = moe_product(totallt18_2020, per5_acs,    0, per5_moe),
-         moe_2020_612  = moe_product(totallt18_2020, per5_acs,    0, per612_moe),
+         moe_2020_612  = moe_product(totallt18_2020, per612_acs,  0, per612_moe),
          moe_2020_1317 = moe_product(totallt18_2020, per1317_acs, 0, per1317_moe)
          ) %>%
   select(GEOID,
@@ -680,14 +680,14 @@ ests_with_forecast %>%
 
 ```
 
-```{r examine time path of pct 0-2 out of under 5}
-pcts_under5 <- 
+```{r examine time path of pct 0-2 out of under 6}
+pcts_under6 <-
   ests_with_forecast %>% 
   filter(agegroup %in% c("02", "34", "5")) %>% 
   group_by(GEOID, year) %>% 
   mutate(pct = pop_interp / sum(pop_interp))
 
-pcts_under5 %>% 
+pcts_under3 %>%
   filter(agegroup == "02") %>%
   ggplot(aes(x = year,
              y = pct,
@@ -696,9 +696,9 @@ pcts_under5 %>%
   theme_minimal()
 ```
 
-```{r examine breakdown of ages based on size of the under 5 population}
+```{r examine breakdown of ages based on size of the under 6 population}
 
-pcts_under5 %>% 
+pcts_under3 %>%
   filter(agegroup == "02",
          year == 2022) %>% 
   ggplot(aes(x = pop_interp,

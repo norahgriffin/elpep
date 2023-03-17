@@ -903,7 +903,7 @@ acs_incpov <-
 # Prepare income-to-poverty ratio variables.
 
 # /!\ NSM: Easier if data were reshaped?
-for (r in c("r0to50", "r50to74", "r75to99", "r100to124", "r125to149", "r150to174", "r175to184", 
+for (r in c("r0to49", "r50to74", "r75to99", "r100to124", "r125to149", "r150to174", "r175to184", 
             "r185to199", "r200to299", "r300to399", "r400to499", "r500plus")) {
   
   ## Prepare variable names
@@ -942,17 +942,17 @@ acs_incpov <-
 # /!\ All of these calculations deserve a function, maybe operating in long form
 acs_incpov <- 
   acs_incpov %>% 
-  mutate(incpov_r0to74_count  =       incpov_r0to50_count  + incpov_r50to74_count,
-         incpov_r0to74_est     =      incpov_r0to50_est    + incpov_r50to74_est,
-         incpov_r0to74_se      = sqrt(incpov_r0to50_se^2   + incpov_r50to74_se^2),
+  mutate(incpov_r0to74_count   =      incpov_r0to49_count  + incpov_r50to74_count,
+         incpov_r0to74_est     =      incpov_r0to49_est    + incpov_r50to74_est,
+         incpov_r0to74_se      = sqrt(incpov_r0to49_se^2   + incpov_r50to74_se^2),
          
          incpov_r50to100_count =                             incpov_r50to74_count  + incpov_r75to99_count,
          incpov_r50to100_est   =                             incpov_r50to74_est    + incpov_r75to99_est,
          incpov_r50to100_se    = sqrt(                       incpov_r50to74_se^2   + incpov_r75to99_se^2),
          
-         incpov_r0to100_count  =      incpov_r0to50_count  + incpov_r50to74_count  + incpov_r75to99_count,
-         incpov_r0to100_est    =      incpov_r0to50_est    + incpov_r50to74_est    + incpov_r75to99_est,
-         incpov_r0to100_se     = sqrt(incpov_r0to50_se^2   + incpov_r50to74_se^2   + incpov_r75to99_se^2),
+         incpov_r0to100_count  =      incpov_r0to49_count  + incpov_r50to74_count  + incpov_r75to99_count,
+         incpov_r0to100_est    =      incpov_r0to49_est    + incpov_r50to74_est    + incpov_r75to99_est,
+         incpov_r0to100_se     = sqrt(incpov_r0to49_se^2   + incpov_r50to74_se^2   + incpov_r75to99_se^2),
          
          incpov_r75to149_count =      incpov_r75to99_count + incpov_r100to124_count + incpov_r125to149_count,
          incpov_r75to149_est   =      incpov_r75to99_est   + incpov_r100to124_est   + incpov_r125to149_est,
