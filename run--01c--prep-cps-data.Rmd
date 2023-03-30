@@ -51,7 +51,7 @@ cps_sub <-
                                            # See https://cps.ipums.org/cps/cps_linking_documentation.shtml
     (!STATEFIP %in% c(2, 15))          &   # This excludes HI and AK
      between(RELATE, 101, 1001)] %>%        # This subsets to only related members of the family
-  select(-COUNTY, -OCC, -CLASSWKR, -FAMID) # dropping variables not currently used.
+  dplyr::select(-COUNTY, -OCC, -CLASSWKR, -FAMID) # dropping variables not currently used.
 
 rm(cps)
 gc()
@@ -525,7 +525,7 @@ We subset down to only the records for the monthly records.
 ```{r}
 cps_pov_monthly <- 
   cps_pov[is.na(ASECFLAG) | ASECFLAG == 2] %>% # ASECFLAG == 2 corresponds to the basic monthly files in march
-  select(-matches("INCTOT|INCWAGE|INCUNEMP|POVERTY|ASECFLAG"))
+  dplyr::select(-matches("INCTOT|INCWAGE|INCUNEMP|POVERTY|ASECFLAG"))
 ```
 
 
@@ -638,10 +638,10 @@ cps_hoh <-
                                 levels = 0:1, 
                                 labels = c("HOH Not Employed",
                                            "HOH Employed")))] %>% 
-  select(CPSID, months_since_base, hoh_gender, hoh_educ, hoh_race, hoh_hispanic, hoh_industry, hoh_industry_vulnerable, hoh_empl)
+  dplyr::select(CPSID, months_since_base, hoh_gender, hoh_educ, hoh_race, hoh_hispanic, hoh_industry, hoh_industry_vulnerable, hoh_empl)
 
-cps_base_hoh <- cps_hoh[months_since_base ==  0] %>% select(-months_since_base)
-cps_post_hoh <- cps_hoh[months_since_base == 15] %>% select(-months_since_base)
+cps_base_hoh <- cps_hoh[months_since_base ==  0] %>% dplyr::select(-months_since_base)
+cps_post_hoh <- cps_hoh[months_since_base == 15] %>% dplyr::select(-months_since_base)
 ```
 
 
@@ -755,7 +755,7 @@ cps_hoh_pre_post <-
         by = "CPSIDP",
         #all = TRUE,
         suffixes = c("_b", "_p")) %>% 
-  select(-months_since_base_b, -months_since_base_p) %>% 
+  dplyr::select(-months_since_base_b, -months_since_base_p) %>% 
   merge(cps_base_hoh, by.x = "CPSID_b", by.y = "CPSID", all.x = TRUE) %>% 
   merge(cps_post_hoh, by.x = "CPSID_b", by.y = "CPSID", all.x = TRUE, suffixes = c("_b", "_p"))
 
@@ -957,7 +957,7 @@ cps_family[AGE <= 5 & months_since_base == 0, .(CPSID, n_kids_le5)] %>%
 
 <!-- Use own kids instead of nkids in the household. -->
 
-```{r examine counts of young children conditional on at least one, eval = developer_mode}
+```{r examine counts of young children conditional on at least one, using own kids only, eval = developer_mode}
 cps_family[AGE <= 5 & months_since_base == 0, .(CPSID, n_own_kids_le5)] %>% 
   with(table(n_own_kids_le5) %>% prop.table() %>% round(3))
 ```

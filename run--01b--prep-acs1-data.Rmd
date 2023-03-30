@@ -99,7 +99,7 @@ acs1_hoh <-
   .[j = hoh_industry_vulnerable := ifelse(hoh_industry == "NA", 
                                           "NA", 
                                           str_detect(hoh_industry, "educhealth|food"))] %>% # Note: the second argument to str_detect() uses regular experessions. For reference, see e.g. https://regexone.com/
-  select(YEAR, SAMPLE, SERIALNO, hoh_educ, hoh_industry, hoh_industry_vulnerable, hoh_race, hoh_hispanic)
+  dplyr::select(YEAR, SAMPLE, SERIALNO, hoh_educ, hoh_industry, hoh_industry_vulnerable, hoh_race, hoh_hispanic)
 ```
 
 
