@@ -87,7 +87,11 @@ nowcast_parallel_ccdf_elig <-
   filter(outcome_var == "ccdf_elig_tight_inc_adj",
          str_detect(sae_spec, "ccdf_wk_pov"))
 
-if (local_ccdf_thresh == 200) {
+if (local_ccdf_thresh == 185) {
+  nowcast_parallel_ccdf_elig <- 
+    nowcast_parallel_ccdf_elig %>% 
+    mutate(base_share = share_WorkElig_0_50 + share_WorkElig_50_125 + share_WorkElig_125_185)
+} else if (local_ccdf_thresh == 200) {
   nowcast_parallel_ccdf_elig <- 
     nowcast_parallel_ccdf_elig %>% 
     mutate(base_share = share_WorkElig_0_100 + share_WorkElig_100_200)

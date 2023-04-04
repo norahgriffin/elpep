@@ -13,8 +13,8 @@ print_documentation <- FALSE
 
 ```{r}
 # run scripts for necessary packages and objects as necessary
-if (!"my_state_abbr" %in% objects()) source("settings--profile.R", echo = FALSE)
 if (!"chHexs"        %in% objects()) source("settings--main.R", echo = FALSE)
+if (!"my_state_abbr" %in% objects()) source("settings--profile.R", echo = FALSE)
 if (!"bin_age"       %in% objects()) source("method--general-helper-functions.R", echo = FALSE)
 ```
 
@@ -290,6 +290,8 @@ cps_pov <-
              fam_incpov_ratio_cat_by75_adj  = bin_incpov_ratio(fam_incpov_ratio_adj, pov_breaks = seq(0, 3, by = 0.75)),
              fam_incpov_ratio_cat_by100     = bin_incpov_ratio(fam_incpov_ratio,     pov_breaks = seq(0, 3, by = 1.00)),
              fam_incpov_ratio_cat_by100_adj = bin_incpov_ratio(fam_incpov_ratio_adj, pov_breaks = seq(0, 3, by = 1.00)),
+             fam_incpov_ratio_cat_to185     = bin_incpov_ratio(fam_incpov_ratio,     pov_breaks = c(0, 0.50, 1.25, 1.85, 3.00)),
+             fam_incpov_ratio_cat_to185_adj = bin_incpov_ratio(fam_incpov_ratio_adj, pov_breaks = c(0, 0.50, 1.25, 1.85, 3.00)),
              fam_incpov_ratio_cat_byMix     = bin_incpov_ratio(fam_incpov_ratio,     pov_breaks = c(0, 0.5, seq(1, 3, by = 1.0))),
              fam_incpov_ratio_cat_byMix_adj = bin_incpov_ratio(fam_incpov_ratio_adj, pov_breaks = c(0, 0.5, seq(1, 3, by = 1.0))),
              fam_incpov_ratio_le.5       = 1*(fam_incpov_ratio     <= 0.5),
@@ -606,7 +608,8 @@ cps_child_base <-
           faminc_adj, fam_incpov_ratio,
           fam_incpov_ratio_cat_by50,  fam_incpov_ratio_cat_by50_adj, 
           fam_incpov_ratio_cat_by75,  fam_incpov_ratio_cat_by75_adj,
-          fam_incpov_ratio_cat_by100, fam_incpov_ratio_cat_by100_adj)] %>% 
+          fam_incpov_ratio_cat_by100, fam_incpov_ratio_cat_by100_adj,
+          fam_incpov_ratio_cat_to185, fam_incpov_ratio_cat_to185_adj)] %>% 
   merge(cps_base_hoh,
         by = "CPSID",
         all.x = TRUE)

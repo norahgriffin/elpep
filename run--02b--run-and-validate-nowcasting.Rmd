@@ -399,8 +399,11 @@ cps_child_base_post <-
          # methods
          share_0_50    = 1*(fam_incpov_ratio_cat_by50_adj  ==   "0%-50%"),
          share_50_100  = 1*(fam_incpov_ratio_cat_by50_adj  ==  "50%-100%"),
+         share_50_125  = 1*(fam_incpov_ratio_cat_to185_adj ==  "50%-125%"),
          share_0_100   = 1*(fam_incpov_ratio_cat_by100_adj ==   "0%-100%"),
          share_100_200 = 1*(fam_incpov_ratio_cat_by100_adj == "100%-200%"),
+         share_125_185 = 1*(fam_incpov_ratio_cat_to185_adj == "125%-185%"),
+         share_185_300 = 1*(fam_incpov_ratio_cat_to185_adj == "185%-300%"),
          share_200_300 = 1*(fam_incpov_ratio_cat_by100_adj == "200%-300%"),
          share_300     = 1*(fam_incpov_ratio_cat_by100_adj == "300%+"))
 
@@ -408,7 +411,21 @@ cps_child_base_post <-
 # At the same time, also make sure to create un-interacted income categories
 # (as necessary) for the sake of the prediction step.
 
-if (local_ccdf_thresh == 200) {
+if (local_ccdf_thresh == 185) {
+  cps_child_base_post <- 
+    cps_child_base_post %>% 
+    mutate(share_NotWorkElig_0_50    = (1 - ccdf_elig_loose)*share_0_50,
+           share_NotWorkElig_50_125  = (1 - ccdf_elig_loose)*share_50_125,
+           share_NotWorkElig_125_185 = (1 - ccdf_elig_loose)*share_125_185,
+           share_NotWorkElig_185_300 = (1 - ccdf_elig_loose)*share_185_300,
+           share_NotWorkElig_300     = (1 - ccdf_elig_loose)*share_300,
+           share_WorkElig_0_50       =      ccdf_elig_loose *share_0_50,
+           share_WorkElig_50_125     =      ccdf_elig_loose *share_50_125,
+           share_WorkElig_125_185    =      ccdf_elig_loose *share_125_185,
+           share_WorkElig_185_300    =      ccdf_elig_loose *share_185_300,
+           share_WorkElig_300        =      ccdf_elig_loose *share_300)
+  
+} else if (local_ccdf_thresh == 200) {
   cps_child_base_post <- 
     cps_child_base_post %>% 
     mutate(share_NotWorkElig_0_100   = (1 - ccdf_elig_loose)*share_0_100,

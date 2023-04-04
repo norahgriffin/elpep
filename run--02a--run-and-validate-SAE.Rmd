@@ -8,8 +8,8 @@ pubic audiences are suppressed or moved to code chunks that can optionally be
 
 ```{r}
 # run scripts for necessary packages and objects as necessary
-if (!"my_state_abbr" %in% objects()) source("settings--profile.R", echo = FALSE)
 if (!"chHexs"        %in% objects()) source("settings--main.R", echo = FALSE)
+if (!"my_state_abbr" %in% objects()) source("settings--profile.R", echo = FALSE)
 if (!"bin_age"       %in% objects()) source("method--general-helper-functions.R", echo = FALSE)
 if (!"direct_est_tract"     %in% objects()) source_rmd("method--small-area-estimation-functions.Rmd", echo = FALSE)
 
@@ -85,6 +85,10 @@ show_acs_n_bys(c("hoh_educ", "hoh_industry_vulnerable"))
 show_acs_n_bys(c("fam_incpov_ratio_cat_by100", "hoh_industry_vulnerable"))
 ```
 
+```{r investigate work elibility for ccdf by income thresholds}
+show_acs_n_bys(c("work_incpov_status185"))
+```
+
 ## Results of SAE Estimation
 
 ```{r setup run options based on local ccdf details}
@@ -103,17 +107,18 @@ incpov_spec_field <- "fam_incpov_ratio_cat_mix" # "fam_incpov_ratio_cat_by100"
 incpov_ref_value  <- "0%-50%"  # "0%-100%"
 incpov_ranges_for_estimation <- c("0to50", "50to100", "100to199", "200to299")
 
-# For the sake of building comparisons of SAE estimates, and now"-cast estimates, 
+# For the sake of building comparisons of SAE estimates, and "now"-cast estimates, 
 # the specification of work_incpov is aligned with the local CCDF threshold. Thus,
 # the final now-cast CCDF eligibility status--which does not strictly need to 
 # align with even the SAE estimates--can be compared to AcS 1-year or SAE 
 # estimates by adding up work_incpov_status75 %in% c("work). Thus, if the 
-# CCDF threshold is 225 FPL, the SAE estimates `work_incpov_stats75 %in% 
+# CCDF threshold is 225 FPL, the SAE estimates `work_incpov_status75 %in% 
 # c("WorkElig_0%-75%", "WorkElig_75%-150%", "WorkElig_150%-225%")` could be
 # added to make a direct comparison.
 
 work_incpov_spec_field <- 
-  case_when(local_ccdf_thresh == 200 ~ "work_incpov_status100",
+  case_when(local_ccdf_thresh == 185 ~ "work_incpov_status185",
+            local_ccdf_thresh == 200 ~ "work_incpov_status100",
             local_ccdf_thresh == 225 ~ "work_incpov_status75",
             TRUE ~ "work_incpov_status100")
 
