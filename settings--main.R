@@ -5,8 +5,8 @@ packages.list <- c("knitr", "ggplot2", "Rcpp", "Hmisc", "dplyr", "data.table", "
                    "DT", "kableExtra", "emdi", "glue", "forcats", "scales", "zoo",
                    "moments", "rgdal", "leaflet", "RColorBrewer", "ggalluvial",
                    "tigris", "extrafont", "remotes", "broom", "sf", "lwgeom",
-                   "foreach", "doParallel", "xlsx", "tidycensus", "fredr",
-                   "ipumsr", "tsibble", "forecast", "fable")
+                   "foreach", "doParallel", "R.utils", "tidycensus", "fredr",
+                   "ipumsr", "tsibble", "forecast", "fable", "tidyverse", "sae")
 for (p in packages.list) {
   if (!p %in% installed.packages()[, "Package"]) install.packages(p)
   # Load the package quietly

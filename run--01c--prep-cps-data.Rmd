@@ -45,14 +45,22 @@ Hawaii and Alaska are dropped, as they follow different federal poverty guidelin
 cps <- fread(file = glue("{input_path}{cps_raw}.csv.gz"))
 cps_sub <- 
   cps %>% 
-  .[CPSID != 0 &                         # This rules out ASEC over-sample households (see documentation on `CPSID`)
-    #(ASECFLAG == 1 | is.na(ASECFLAG)) & # This includes both ASEC and basic monthly (where ASECFLAG is NA)
-    (!STATEFIP %in% c(2, 15))          & # This excludes HI and AK
-     between(RELATE, 101, 1001)] %>%    # This subsets to only related members of the family              
-  select(-COUNTY, -OCC, -CLASSWKR, -FAMID) # dropping variables not currently used.
+  .[CPSID != 0 &                           # This rules out ASEC over-sample households (see documentation on `CPSID`)
+    (ASECFLAG == 2 | is.na(ASECFLAG))  &   # This excludes March ASEC sample 
+                                           # Using both ASEC and monthly causes some issues -- e.g., generate WTFINL == NA for March ASEC; double counts individuals for March
+                                           # See https://cps.ipums.org/cps/cps_linking_documentation.shtml
+    (!STATEFIP %in% c(2, 15))          &   # This excludes HI and AK
+     between(RELATE, 101, 1001)] %>%        # This subsets to only related members of the family
+  dplyr::select(-COUNTY, -OCC, -CLASSWKR, -FAMID) # dropping variables not currently used.
 
 rm(cps)
 gc()
+
+#hk /!\ Notes
+## Current code excludes sub-families (anyone with RELATE > 1001) and assumes NO multi-family household
+## Multi-generational family -- parents/head/child/siblings/nephew/niece... 
+## Come back to check how to address this
+
 ```
 
 <!-- ### Build timing indicators -->
@@ -60,13 +68,13 @@ gc()
 ```{r develop CPS timing flags}
 cps_timing <-
   cps_sub %>%
-  .[j = `:=`(baseline_year  = as.numeric(substr(as.character(CPSID), 1, 4)),
+  .[j = `:=`(baseline_year  = as.numeric(substr(as.character(CPSID), 1, 4)), 
              baseline_month = as.numeric(substr(as.character(CPSID), 5, 6)))] %>%
   .[j = `:=`(months_since_base = (YEAR - baseline_year)*12 + (MONTH - baseline_month))]
-cps_timing[j = table(months_since_base)]
+cps_timing[j = table(months_since_base)] # Values should be 0-3, 12-15 (CPS samples are interviewed for 4 consecutive months, not interviewed for the next 8 months, and then interviewed again for the next 4 months). There are some cases of 9-11 for months_since_base, but small enough to ignore. 
 
 cps_timing[j = `:=`(is_baseline = months_since_base == 0,
-                    # /!\ This selects a single post-period survey. Notably, it's the most recent in which
+                    # /!\ This selects a single post-period survey. Notably, it's the first time in which
                     # the household has been seen. That will standardize samples with respect to calendar
                     # time, but not with respect to time since initial survey. Return to consider whether
                     # this is okay, if we want to standardized by e.g. months_since_base == 12 or 15, or
@@ -76,11 +84,11 @@ cps_timing[j = `:=`(is_baseline = months_since_base == 0,
                     # build an indicator for whether the data are around great 
                     # recession -- surrounding 2007-2009 -- vs COVID, surrounding
                     # 2019 and after
-                    is_validation = YEAR < 2015), 
+                    is_validation = YEAR < 2015),
            by = CPSID]
 
 cps_timing_sub <- 
-  cps_timing[is_baseline == TRUE | is_post == TRUE]
+  cps_timing[is_baseline == TRUE | is_post == TRUE] #subset to baseline or post data only
 
 rm(cps_sub)
 gc()
@@ -95,7 +103,7 @@ cps_timing_sub[j = .(has_baseline = max(is_baseline),
           pct_has_month0   = mean(has_month0)),
     by = .(YEAR_MONTH = substr(as.character(CPSID), 1, 6))] %>% 
   .[order(YEAR_MONTH)] %>% 
-  pivot_longer(cols = -YEAR_MONTH) %>% 
+  pivot_longer(cols = -YEAR_MONTH) %>%
   ggplot(aes(x = YEAR_MONTH,
              y = value,
              color = name,
@@ -110,7 +118,7 @@ cps_timing_sub[j = .(has_baseline = max(is_baseline),
   theme(axis.text.x = element_text(angle = 90, 
                                    size = 6),
         legend.position = "bottom")
-  
+
 ```
 
 ```{r tabulate months of available CPS data, eval = developer_mode}
@@ -135,25 +143,43 @@ Develop key family measured necessary to determine both poverty status and eligi
 cps_timing_sub[MARST == 3, table(RELATE)]
 ```
 
-<!-- These codes are consistent with being the householder themselves (RELATE == 101), which is by far the the most common, or otherwise the child, parent, grandchild, or "other" relative. In short, because this implies that the head of household has no spouse present for whom FAMINC would ostensibly represent a combined income, we treat them as would-be single filers. -->
+<!-- These codes are consistent with being the householder themselves (RELATE == 101), which is by far the most common, or otherwise the child, parent, grandchild, or "other" relative. In short, because this implies that the head of household has no spouse present for whom FAMINC would ostensibly represent a combined income, we treat them as would-be single filers. -->
 
 ```{r develop family information relevant to calculating adjusted income and poverty status}
+# Assigning filing status
+## Single - Anyone with MARST == 3, 4, 5, 6, and no qualifying person
+## MFJ - Anyone with MARST == 1, 2
+## HOH - Anyone with MARST == 3, 4, 5, 6 with a qualifying person
+
+# Note on qualifying person: 
+## A qualifying person includes but not limited to a qualifying child
+## A qualifying child is one's (1) own child, step child, foster child, etc.; (2) (under age 19) OR (under age 24 & a full-time student); (3) (single) OR (married and can be claimed as a dependent)
+## Although non-kids (e.g., siblings, parents) can be qualifying persons for determining tax filing status, it is difficult to tell whether non-kids meet the requirements from the data. Since most of the qualifying persons are kids, we only count kids
+## See `Qualifying Child` section from https://www.irs.gov/publications/p501#en_US_2022_publink1000220823
+
+# Note on Married Filing
+## An individual can file MFJ or MFS if they are married 
+## This code assumes MFJ if one is married -- which is reasonable based on the IRS statistics -- According to IRS tax statistics, for tax year 2020, 93.4% of [MFJ+MFS] filed jointly and 6.6% filed separately. 
+## Source: (https://www.irs.gov/pub/irs-soi/20in13ms.xls)
 cps_family <- 
   cps_timing_sub %>% 
-  .[j = `:=`(fam_size = .N,
+  .[j = `:=`(fam_size = .N, 
              fam_wgt = sum(WTFINL),
              has_schage_kid_base_flag = 1*(between(AGE, 6, 17)) %>% max(),
-             n_kids = sum(1*RELATE %in% c(301, 303)), # 301 - child of head of household, 303 is step-child
-             n_kids_le16 = sum(AGE <= 16),
+             n_own_kids = sum(1*RELATE %in% c(301, 303)),                           # 301 - child of head of household, 303 is step-child
+             n_kids_le16 = sum(AGE <= 16),                                          # this counts number of kids living in the household regardless of relationship to the head
              n_kids_le13 = sum(AGE <= 13),
              n_kids_le5  = sum(AGE <=  5),
              n_kids_0to2 = sum(between(AGE, 0, 2)),
              n_kids_3to5 = sum(between(AGE, 3, 5)),
+             n_own_kids_le5  = sum(AGE <=  5 & RELATE %in% c(301, 303)),
              n_own_kids_le16 = sum(AGE <= 16 & RELATE %in% c(301, 303)),
-             spouse_present = max(RELATE %in% 201:203),
-             single_filer_flag = RELATE == 101       & MARST %in% 3:6,  # this is HOH is single, separated, divorced or widowed
-              joint_filer_flag = RELATE %in% 201:203 & EMPSTAT == 10,   # assumed if spouse (opposite or same sex) is employed. /!\ There's potential for greater detail.
-                hoh_filer_flag = RELATE == 101       & MARST %in% 1:2), # this is HOH who is married with spouse either present or absent, but where spouse does not work
+             n_qual_kids = sum((AGE < 19 & RELATE %in% c(301, 303)) | (between(AGE, 19, 23) & RELATE %in% c(301, 303) & SCHLCOLL %in% c(1,3))), # this is number of qualifying kids
+             spouse_present = max(RELATE %in% 201:203)),
+             by = .(YEAR, MONTH, YEAR_MONTH, CPSID)] %>% 
+  .[j = `:=`(single_filer_flag = RELATE == 101 & MARST %in% 2:6 & n_qual_kids == 0, # this is head who is unmarried (single, separated, divorced or widowed) with no qualifying kids
+             joint_filer_flag  = RELATE == 101 & MARST == 1,                        # assumed MFJ if married, not considering the case of married, living separately and filing MFS
+             hoh_filer_flag    = RELATE == 101 & MARST %in% 2:6 & n_qual_kids > 0), # this is head who is unmarried (single, separated, divorced or widowed) with qualifying kids
     by = .(YEAR, MONTH, YEAR_MONTH, CPSID)] %>% 
   .[j = `:=`(has_schage_kid_base = factor(has_schage_kid_base_flag,
                                           levels = 0:1, 
@@ -164,14 +190,30 @@ cps_family <-
                                           labels = c("No Young Kids, Base",
                                                      "1+ Young Kids, Base")))] %>% 
   .[j = `:=`(single_filer_flag = max(single_filer_flag),
-              joint_filer_flag = max( joint_filer_flag),
-                hoh_filer_flag = max(   hoh_filer_flag)),
+             joint_filer_flag = max( joint_filer_flag),
+             hoh_filer_flag = max(   hoh_filer_flag)),
     by = .(YEAR, MONTH, YEAR_MONTH, CPSID)] %>%
   .[j = filing_status := 
       case_when(single_filer_flag == 1 ~ "single", 
-                 joint_filer_flag == 1 ~ "joint",  
-                   hoh_filer_flag == 1 ~ "hoh", 
+                joint_filer_flag == 1 ~ "joint",  
+                hoh_filer_flag == 1 ~ "hoh", 
                 TRUE ~ "other")]
+
+```
+
+<!-- ### Test for family composition -->
+
+```{r tests ..., eval = developer_mode}
+# Confirm number of head for each household (should be one)
+cps_family_test <- 
+  cps_family %>%
+  .[j = `:=`(n_hoh = sum(1*RELATE == 101)),
+    by = .(YEAR, MONTH, YEAR_MONTH, CPSID)]
+
+table(cps_family_test$n_hoh, useNA = "always")
+
+gc(cps_family_test)
+
 ```
 
 ### Adjustment for Economic Impact Payments
@@ -198,7 +240,9 @@ The third round of federal stimulus was issued starting in March 2021 and [provi
 
 * \$1,400 for single adults, and \$2,800 for married
 * \$1,400 for each eligible dependent, including adult dependents
-* Reduction of amounts with full phase-out at $80,000 for single filers, $120,000 for head of household, and $160,000 for married joint filers. This implied a significantly higher rate of phase-out, and one that is variable
+* Full amount of the payment for \$75,000 for single filers, \$112,500 for head of household, and \$150,000 for married joint filers. (https://www.irs.gov/coronavirus/third-economic-impact-payment)
+* Reduction of amounts with full phase-out at \$80,000 for single filers, \$120,000 for head of household, and \$160,000 for married joint filers. This implied a significantly higher rate of phase-out, and one that is variable (https://www.irs.gov/newsroom/more-details-about-the-third-round-of-economic-impact-payments)
+* Removal of age cap -- all qualifying kids (not just under 17) were eligible for the third stimulus check
 
 With some exceptions, the majority of this Economic Impact Payment was sent as of March 30, 2021. We assume that this income was received as of April 2021.
 
@@ -213,7 +257,7 @@ cps_family[j = faminc_draw := draw_inc(FAMINC)]
 cps_base_income <- 
   cps_family[months_since_base == 0 & RELATE == 101,
              .(CPSID, faminc_draw0 = faminc_draw)]
-cps_pov <-
+cps_pov <- 
   cps_family %>% 
   merge(cps_base_income,
         by = "CPSID",
@@ -224,22 +268,49 @@ cps_pov <-
   # it may be worth more care determining alignment with FAMINC which is for the 
   # "householder's family".
   .[j = `:=`(eip1_est = 
-               case_when(filing_status == "single" ~ pmax(0, 1200 + n_own_kids_le16*500 - 0.05*(faminc_draw0 -  75000)),
-                         filing_status == "hoh"    ~ pmax(0, 2400 + n_own_kids_le16*500 - 0.05*(faminc_draw0 - 112500)),
-                         filing_status == "joint"  ~ pmax(0, 2400 + n_own_kids_le16*500 - 0.05*(faminc_draw0 - 150000))),
+               case_when(filing_status == "single" ~ pmax(0, 1200 + n_own_kids_le16*500 - pmax(0, 0.05*(faminc_draw0 -  75000))),
+                         filing_status == "hoh"    ~ pmax(0, 2400 + n_own_kids_le16*500 - pmax(0, 0.05*(faminc_draw0 - 112500))),
+                         filing_status == "joint"  ~ pmax(0, 2400 + n_own_kids_le16*500 - pmax(0, 0.05*(faminc_draw0 - 150000)))),
              eip2_est = 
-               case_when(filing_status == "single" ~ pmax(0,  600 + n_own_kids_le16*600 - 0.05*(faminc_draw0 -  75000)),
-                         filing_status == "hoh"    ~ pmax(0, 1200 + n_own_kids_le16*600 - 0.05*(faminc_draw0 - 112500)),
-                         filing_status == "joint"  ~ pmax(0, 1200 + n_own_kids_le16*600 - 0.05*(faminc_draw0 - 150000))),
-             # /!\ As a temporary assumption, we simply assume that the full payment is received if under the
-             # cutoff, as the interval of benefit decline is so narrow
+               case_when(filing_status == "single" ~ pmax(0,  600 + n_own_kids_le16*600 - pmax(0, 0.05*(faminc_draw0 -  75000))),
+                         filing_status == "hoh"    ~ pmax(0, 1200 + n_own_kids_le16*600 - pmax(0, 0.05*(faminc_draw0 - 112500))),
+                         filing_status == "joint"  ~ pmax(0, 1200 + n_own_kids_le16*600 - pmax(0, 0.05*(faminc_draw0 - 150000)))),
              eip3_est = 
-               case_when(filing_status == "single" ~ ifelse(faminc_draw0 <=  80000, 1400*fam_size, 0),
-                         filing_status == "hoh"    ~ ifelse(faminc_draw0 <= 120000, 1400*fam_size, 0),
-                         filing_status == "joint"  ~ ifelse(faminc_draw0 <= 160000, 1400*fam_size, 0)),
+               case_when(filing_status == "single" & faminc_draw0 < 75000                  ~ 1400*(1 + n_qual_kids),
+                         filing_status == "single" & between(faminc_draw0, 75000, 80000)   ~ pmax(0, (5000-(faminc_draw0-75000))/5000*1400*fam_size),
+                         filing_status == "single" & faminc_draw0 > 80000                  ~ 0,
+                         filing_status == "hoh"    & faminc_draw0 < 112500                 ~ 1400*(2 + n_qual_kids),
+                         filing_status == "hoh"    & between(faminc_draw0, 112500, 120000) ~ pmax(0, (7500-(faminc_draw0-112500))/7500*1400*fam_size),
+                         filing_status == "hoh"    & faminc_draw0 > 120000                 ~ 0,
+                         filing_status == "joint"  & faminc_draw0 < 150000                 ~ 1400*(1 + n_qual_kids),
+                         filing_status == "joint"  & between(faminc_draw0, 150000, 160000) ~ pmax(0, (10000-(faminc_draw0-150000))/10000*1400*fam_size),
+                         filing_status == "joint"  & faminc_draw0 > 160000                 ~ 0),
              eip1_receipt = between((YEAR - 2020)*12 + (MONTH - 5), 0, 11),
              eip2_receipt = between((YEAR - 2021)*12 + (MONTH - 1), 0, 11),
              eip3_receipt = between((YEAR - 2021)*12 + (MONTH - 4), 0, 11))]
+```
+
+```{r check the assignment of eip receipts by filing status, eval = developer_mode}
+cps_pov_test <-
+  cps_pov %>%
+  .[j = `:=`(eip3_thres_full = 
+               case_when(filing_status == "single" ~ 80000,
+                         filing_status == "hoh"    ~ 120000,
+                         filing_status == "joint"  ~ 160000))]
+  
+cps_pov_test[, 
+        .(`1st EIP` = max(eip1_est, na.rm = TRUE),
+          `2nd EIP` = max(eip2_est, na.rm = TRUE),
+          `3rd EIP` = max(eip3_est, na.rm = TRUE)),
+        by = .(filing_status)] %>% 
+  kable()
+
+cps_pov_test[faminc_draw0 > eip3_thres_full, 
+        .(`3rd EIP` = max(eip3_est, na.rm = TRUE)),
+        by = .(filing_status)] %>% 
+  kable()
+
+gc(cps_pov_test)
 ```
 
 ```{r check the schedule of eip receipts, eval = developer_mode}
@@ -456,7 +527,7 @@ We subset down to only the records for the monthly records.
 ```{r}
 cps_pov_monthly <- 
   cps_pov[is.na(ASECFLAG) | ASECFLAG == 2] %>% # ASECFLAG == 2 corresponds to the basic monthly files in march
-  select(-matches("INCTOT|INCWAGE|INCUNEMP|POVERTY|ASECFLAG"))
+  dplyr::select(-matches("INCTOT|INCWAGE|INCUNEMP|POVERTY|ASECFLAG"))
 ```
 
 
@@ -569,10 +640,10 @@ cps_hoh <-
                                 levels = 0:1, 
                                 labels = c("HOH Not Employed",
                                            "HOH Employed")))] %>% 
-  select(CPSID, months_since_base, hoh_gender, hoh_educ, hoh_race, hoh_hispanic, hoh_industry, hoh_industry_vulnerable, hoh_empl)
+  dplyr::select(CPSID, months_since_base, hoh_gender, hoh_educ, hoh_race, hoh_hispanic, hoh_industry, hoh_industry_vulnerable, hoh_empl)
 
-cps_base_hoh <- cps_hoh[months_since_base ==  0] %>% select(-months_since_base)
-cps_post_hoh <- cps_hoh[months_since_base == 15] %>% select(-months_since_base)
+cps_base_hoh <- cps_hoh[months_since_base ==  0] %>% dplyr::select(-months_since_base)
+cps_post_hoh <- cps_hoh[months_since_base == 15] %>% dplyr::select(-months_since_base)
 ```
 
 
@@ -687,7 +758,7 @@ cps_hoh_pre_post <-
         by = "CPSIDP",
         #all = TRUE,
         suffixes = c("_b", "_p")) %>% 
-  select(-months_since_base_b, -months_since_base_p) %>% 
+  dplyr::select(-months_since_base_b, -months_since_base_p) %>% 
   merge(cps_base_hoh, by.x = "CPSID_b", by.y = "CPSID", all.x = TRUE) %>% 
   merge(cps_post_hoh, by.x = "CPSID_b", by.y = "CPSID", all.x = TRUE, suffixes = c("_b", "_p"))
 
@@ -885,6 +956,13 @@ cps_child_base[, .(n = .N), by = CPSID] %>%
 ```{r examine counts of young children conditional on at least one, eval = developer_mode}
 cps_family[AGE <= 5 & months_since_base == 0, .(CPSID, n_kids_le5)] %>% 
   with(table(n_kids_le5) %>% prop.table() %>% round(3))
+```
+
+<!-- Use own kids instead of nkids in the household. -->
+
+```{r examine counts of young children conditional on at least one, using own kids only, eval = developer_mode}
+cps_family[AGE <= 5 & months_since_base == 0, .(CPSID, n_own_kids_le5)] %>% 
+  with(table(n_own_kids_le5) %>% prop.table() %>% round(3))
 ```
 
 <!-- Is the issue in how we are calculating things? -->

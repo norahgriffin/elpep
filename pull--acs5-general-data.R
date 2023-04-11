@@ -15,9 +15,9 @@
 # Import functions
 
 library(glue)
-source(glue("{code_path}code/settings--main.R"))
-source(glue("{code_path}code/settings--profile.R"))
-source(glue("{code_path}code/method--general-helper-functions.R"))
+source(glue("{code_path}settings--main.R"))
+source(glue("{code_path}settings--profile.R"))
+source(glue("{code_path}method--general-helper-functions.R"))
 
 # Set local variable values
 
@@ -140,11 +140,11 @@ meta_sub  %>% with(table(group, source))
 
 meta_sub_q <-
 	meta_sub %>%
-	select(group, name, label, concept, source) %>%
+	dplyr::select(group, name, label, concept, source) %>%
 	group_by(group, name, label) %>%
 	mutate(n_nonNA_concept = sum(!is.na(concept))) %>%
 	filter(ifelse(n_nonNA_concept>=1, !is.na(concept), TRUE)) %>%
-	select(-n_nonNA_concept) %>%
+	dplyr::select(-n_nonNA_concept) %>%
 	unique()
 
 # Print variables with more than one set of meta data
@@ -192,9 +192,9 @@ meta_renames_B01001 <-
 
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_B01001 %>% ungroup() %>% arrange(name) %>% select(ageraw, age) %>% unique()
-meta_renames_B01001 %>% ungroup() %>% arrange(name) %>% select(concept, raceeth) %>% unique()
-meta_renames_B01001 <- meta_renames_B01001 %>% select(-group, -ageraw, -concept, -est, -count)
+meta_renames_B01001 %>% ungroup() %>% arrange(name) %>% dplyr::select(ageraw, age) %>% unique()
+meta_renames_B01001 %>% ungroup() %>% arrange(name) %>% dplyr::select(concept, raceeth) %>% unique()
+meta_renames_B01001 <- meta_renames_B01001 %>% dplyr::select(-group, -ageraw, -concept, -est, -count)
 
 # ---------------------------------------------------------------------------- #
 # Develop metadata for [B09001] Population Under 18 Years of Age ---------------
@@ -212,8 +212,8 @@ meta_renames_B09001 <-
 
 # Check on mappings in the data and success of creating variable names
 
-meta_renames_B09001 %>% ungroup() %>% arrange(name) %>% select(ageraw, age) %>% unique()
-meta_renames_B09001 <- meta_renames_B09001 %>% select(-group, -concept, -estimate, -total, -hh, -ageraw)
+meta_renames_B09001 %>% ungroup() %>% arrange(name) %>% dplyr::select(ageraw, age) %>% unique()
+meta_renames_B09001 <- meta_renames_B09001 %>% dplyr::select(-group, -concept, -estimate, -total, -hh, -ageraw)
 
 # ---------------------------------------------------------------------------- #
 # Develop metadata for [B17001A-I] Poverty Level by Sex and By Age  ------
@@ -243,7 +243,7 @@ meta_renames_B17001 <-
 # Check on the mapping of subtables to race and ethnicity
 if (FALSE) {
   meta_renames_B17001 %>% 
-    select(suffix, raceeth) %>% 
+    dplyr::select(suffix, raceeth) %>% 
     unique() %>% 
     arrange(suffix)
 }
@@ -265,8 +265,8 @@ meta_renames_B17026 <-
 
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_B17026 %>% ungroup() %>% arrange(name) %>% select(ratio, rawratio) %>% unique()
-meta_renames_B17026 <- meta_renames_B17026 %>% select(-group, -concept, -est, -count, -rawratio)
+meta_renames_B17026 %>% ungroup() %>% arrange(name) %>% dplyr::select(ratio, rawratio) %>% unique()
+meta_renames_B17026 <- meta_renames_B17026 %>% dplyr::select(-group, -concept, -est, -count, -rawratio)
 
 # ---------------------------------------------------------------------------- #
 # Develop metadata for [B03002] Hispanic or Latino Origin by Race --------------
@@ -294,8 +294,8 @@ meta_renames_B03002 <-
 
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_B03002 %>% ungroup() %>% arrange(name) %>% select(race1, hisp, raceeth) %>% unique()
-meta_renames_B03002 <- meta_renames_B03002 %>% select(-group, -concept, -est, -count, -race1, -race2, -hisp)
+meta_renames_B03002 %>% ungroup() %>% arrange(name) %>% dplyr::select(race1, hisp, raceeth) %>% unique()
+meta_renames_B03002 <- meta_renames_B03002 %>% dplyr::select(-group, -concept, -est, -count, -race1, -race2, -hisp)
 
 # ---------------------------------------------------------------------------- #
 # Develop metadata for [B08006] Sex of Workers by Transportation to Work -------
@@ -318,8 +318,8 @@ meta_renames_B08006 <-
   
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
  
-meta_renames_B08006 %>% ungroup() %>% arrange(name) %>% select(cat1, transportwork) %>% unique()
-meta_renames_B08006 <- meta_renames_B08006 %>% select(-group, -concept, -est, -count, -cat1, -cat2, -cat3, -cat4)
+meta_renames_B08006 %>% ungroup() %>% arrange(name) %>% dplyr::select(cat1, transportwork) %>% unique()
+meta_renames_B08006 <- meta_renames_B08006 %>% dplyr::select(-group, -concept, -est, -count, -cat1, -cat2, -cat3, -cat4)
 
 # ---------------------------------------------------------------------------- #
 # Develop metadata for [B08013] Aggregate Travel Time to Work by Sex -----------
@@ -339,7 +339,7 @@ meta_renames_B08013 <-
 
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_B08013 <- meta_renames_B08013 %>% select(-group, -concept, -est, -count, -gender)
+meta_renames_B08013 <- meta_renames_B08013 %>% dplyr::select(-group, -concept, -est, -count, -gender)
 
 # ---------------------------------------------------------------------------- #
 # Develop metadata for [B08303] Travel Time to Work ----------------------------
@@ -358,8 +358,8 @@ meta_renames_B08303 <-
 
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_B08303 %>% ungroup() %>% arrange(name) %>% select(traveltime, rawtraveltime) %>% unique()
-meta_renames_B08303 <- meta_renames_B08303 %>% select(-group, -concept, -est, -count, -rawtraveltime)
+meta_renames_B08303 %>% ungroup() %>% arrange(name) %>% dplyr::select(traveltime, rawtraveltime) %>% unique()
+meta_renames_B08303 <- meta_renames_B08303 %>% dplyr::select(-group, -concept, -est, -count, -rawtraveltime)
 
 # ---------------------------------------------------------------------------- #
 # Develop metadata for [B10051] Grandparents Living with Own Grandchildren -----
@@ -380,8 +380,8 @@ meta_renames_B10051 <-
 
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_B10051 %>% ungroup() %>% arrange(name) %>% select(gptype, resp) %>% unique()
-meta_renames_B10051 <- meta_renames_B10051 %>% select(-group, -concept, -est, -count, -age, -resp)
+meta_renames_B10051 %>% ungroup() %>% arrange(name) %>% dplyr::select(gptype, resp) %>% unique()
+meta_renames_B10051 <- meta_renames_B10051 %>% dplyr::select(-group, -concept, -est, -count, -age, -resp)
 
 # ---------------------------------------------------------------------------- #
 # Develop metadata for [B10063] Households with Grandparents Living with -------
@@ -411,8 +411,8 @@ meta_renames_B10063 <-
 
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_B10063 %>% ungroup() %>% arrange(name) %>% select(hhtype, type, resp) %>% unique()
-meta_renames_B10063 <- meta_renames_B10063 %>% select(-group, -concept, -est, -count, -type, -resp, -respshare)
+meta_renames_B10063 %>% ungroup() %>% arrange(name) %>% dplyr::select(hhtype, type, resp) %>% unique()
+meta_renames_B10063 <- meta_renames_B10063 %>% dplyr::select(-group, -concept, -est, -count, -type, -resp, -respshare)
 
 # ---------------------------------------------------------------------------- #
 # Develop metadata for [B23001] Sex by Age by Employment Status ----------------
@@ -451,8 +451,8 @@ meta_renames_B23001 <-
 
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_B23001 %>% ungroup() %>% arrange(name) %>% select(ageraw, age) %>% unique()
-meta_renames_B23001 <- meta_renames_B23001 %>% select(-group, -concept, -est, -count, -ageraw)
+meta_renames_B23001 %>% ungroup() %>% arrange(name) %>% dplyr::select(ageraw, age) %>% unique()
+meta_renames_B23001 <- meta_renames_B23001 %>% dplyr::select(-group, -concept, -est, -count, -ageraw)
 
 # ---------------------------------------------------------------------------- #
 # Develop metadata for [C15002A-I] Sex by Educational Attainment ---------------
@@ -492,9 +492,9 @@ meta_renames_C15002 <-
 
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_C15002 %>% ungroup() %>% arrange(name) %>% select(raceeth, concept) %>% unique()
-meta_renames_C15002 %>% ungroup() %>% arrange(name) %>% select(educ, educraw) %>% unique()
-meta_renames_C15002 <- meta_renames_C15002 %>% select(-group, -concept, -est, -count, -educraw)
+meta_renames_C15002 %>% ungroup() %>% arrange(name) %>% dplyr::select(raceeth, concept) %>% unique()
+meta_renames_C15002 %>% ungroup() %>% arrange(name) %>% dplyr::select(educ, educraw) %>% unique()
+meta_renames_C15002 <- meta_renames_C15002 %>% dplyr::select(-group, -concept, -est, -count, -educraw)
 
 # ---------------------------------------------------------------------------- #
 # Develop metadata for [B17012] Poverty Status in Past 12 Months of Families ----
@@ -514,8 +514,8 @@ meta_renames_B17012_pov <-
 
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_B17012_pov %>% ungroup() %>% arrange(name) %>% select(hhpov, incpov) %>% unique()
-meta_renames_B17012_pov <- meta_renames_B17012_pov %>% select(-group, -concept, -est, -count, -family, -type, -kids, -incpov)
+meta_renames_B17012_pov %>% ungroup() %>% arrange(name) %>% dplyr::select(hhpov, incpov) %>% unique()
+meta_renames_B17012_pov <- meta_renames_B17012_pov %>% dplyr::select(-group, -concept, -est, -count, -family, -type, -kids, -incpov)
 
 ### Separate development of this table for measures of ------------------------#
 ### presence of adults with kids ----------------------------------------------#
@@ -538,8 +538,8 @@ meta_renames_B17012_fam <-
   
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_B17012_fam %>% ungroup() %>% arrange(name) %>% select(hhpov, incpov) %>% unique()
-meta_renames_B17012_fam <- meta_renames_B17012_fam %>% select(-group, -concept, -est, -count, -family, -type, -kids, -incpov)
+meta_renames_B17012_fam %>% ungroup() %>% arrange(name) %>% dplyr::select(hhpov, incpov) %>% unique()
+meta_renames_B17012_fam <- meta_renames_B17012_fam %>% dplyr::select(-group, -concept, -est, -count, -family, -type, -kids, -incpov)
 
 ### Combine these measures
 meta_renames_B17012 <- 
@@ -559,7 +559,7 @@ meta_renames_B01003 <-
 
 # Verify that variable names were correctly constructed, and save variable-to-variable name crosswalk
 
-meta_renames_B01003 <- meta_renames_B01003 %>% select(-group, -concept, -est)
+meta_renames_B01003 <- meta_renames_B01003 %>% dplyr::select(-group, -concept, -est)
   
 # ---------------------------------------------------------------------------- #
 # Add margin of error variables to metadata (modify last letter of variable name, store modified variable names in table)
@@ -582,7 +582,7 @@ for (tablenum in tablenums){
   assign(meta_name, d_aug)
 }
 
-table_fields <- meta_sub %>% ungroup() %>% select(group, name, source)
+table_fields <- meta_sub %>% ungroup() %>% dplyr::select(group, name, source)
 all_fields <- 
   bind_rows(table_fields,
             table_fields %>% mutate(name = gsub("E$", "M", name)))
@@ -622,9 +622,9 @@ all_fields <-
 #       # Note: we create general structure with the `geo`, `geo_val`, and `source`
 #       # fields so that we can do a single, unified processing step with all equivalent
 #       # calculation fields below.
-#       select(-state) %>% 
+#       dplyr::select(-state) %>% 
 #       gather(field, val, -source, -endyear, -geo, -geo_val, -NAME) %>% 
-#       select(source, endyear, geo, geo_val, NAME, field, val)
+#       dplyr::select(source, endyear, geo, geo_val, NAME, field, val)
 #     
 #     # Make data wide by stat (estimate and moe)
 #     acs1pull_wide.stat <-
@@ -674,13 +674,13 @@ if (update_acs_pulls) {
     
     acs5pull_long <-
       acs5pull %>% 
-      #select(-state, -county) %>%
+      #dplyr::select(-state, -county) %>%
       mutate(source = "acs5",
              endyear = year,
              geo = "tract") %>% 
       mutate(geo_val = paste0(state, county, tract)) %>%
       gather(field, val, -source, -endyear, -geo, -NAME, -state, -county, -tract, -geo_val) %>% 
-      select(source, endyear, geo, NAME, field, val, geo_val)
+      dplyr::select(source, endyear, geo, NAME, field, val, geo_val)
     
     # Make data wide by stat (estimate and moe)
     acs5pull_wide.stat <-
@@ -721,12 +721,12 @@ if (update_acs_pulls) {
       # Prep metadata
       meta_table <-
         get(paste0("meta_renames_", tablenum)) %>% 
-        select(-source) %>% 
+        dplyr::select(-source) %>% 
         unique() %>% 
         # Remove last character (should just be "E") which inappropriately 
         # indicates only "e"stimates rather than the full field name
         mutate(field = str_replace(name, "\\w$", "")) %>% 
-        select(-matches("^name$|^stat$|^est$"))
+        dplyr::select(-matches("^name$|^stat$|^est$"))
       
       # Merge in metadata and reshape to long by measure, wide by stat (i.e. est vs moe)
       d <- 
@@ -738,7 +738,7 @@ if (update_acs_pulls) {
         # developed in effect drops source data columns which correspond to counts that are
         # less than the full depth. E.g in by-age variables, we don't keep the field which
         # is the sum across all ages.
-        select(-field) %>% 
+        dplyr::select(-field) %>% 
         unique()
       
       tableName <- paste(source, tablenum, sep = "_")
@@ -831,7 +831,7 @@ for (r in age_list) {
 
 acs_age <-
   acs_age %>%
-  select(., 1:5, contains("agedist_"))
+  dplyr::select(., 1:5, contains("agedist_"))
 
 # Check summary statistics.
 
@@ -847,7 +847,7 @@ summary(acs_age[!exclude_vars])
 acs_childpop <-
   bind_rows(acs5_B09001) %>% # acs1_B09001, 
   mutate(se = moe/1.645) %>%
-  select(-moe) %>%
+  dplyr::select(-moe) %>%
   rename(count = est) %>%
   gather(stat, val, count, se) %>%
   unite(colname, age, stat) %>%
@@ -936,13 +936,13 @@ acs_incpov <-
   acs_incpov %>%
   mutate(tot_families_count = All_est,
          tot_families_se = All_moe/1.645) %>%
-  select(., 1:5, contains("incpov"), contains("tot_families"))
+  dplyr::select(., 1:5, contains("incpov"), contains("tot_families"))
 
 # Build certain aggregates
 # /!\ All of these calculations deserve a function, maybe operating in long form
 acs_incpov <- 
   acs_incpov %>% 
-  mutate(incpov_r0to74_count  =       incpov_r0to50_count  + incpov_r50to74_count,
+  mutate(incpov_r0to74_count   =      incpov_r0to50_count  + incpov_r50to74_count,
          incpov_r0to74_est     =      incpov_r0to50_est    + incpov_r50to74_est,
          incpov_r0to74_se      = sqrt(incpov_r0to50_se^2   + incpov_r50to74_se^2),
          
@@ -1000,7 +1000,7 @@ acs_count <-
          # Formula for variance of difference between two random variables, 
          # where cov(All, WorkAtHome) = var(WorkAtHome): https://en.wikipedia.org/wiki/Variance
          count_se = sqrt((All_moe/1.645)^2 + (WorkAtHome_moe/1.645)^2 - 2*(WorkAtHome_moe/1.645)^2)) %>% 
-  select(-All_est, -All_moe, -WorkAtHome_est, -WorkAtHome_moe)
+  dplyr::select(-All_est, -All_moe, -WorkAtHome_est, -WorkAtHome_moe)
   # /!\ There are cases of negative variance, i.e. where WorkAtHome_moe > All_moe,
   # e.g. for source == "acs5", endyear == 2019, geo_val == 17043844701
 
@@ -1012,7 +1012,7 @@ acs_timetransport <-
     timetransport_est = ifelse(count_est!=0, est/count_est, NA),
     timetransport_se = se_ratio(est, count_est, (moe/1.645), count_se),
     timetransport_count = count_est) %>%
-  select(-est, -moe, -count_est, -count_se)
+  dplyr::select(-est, -moe, -count_est, -count_se)
 
 rm(acs_count)
 
@@ -1052,7 +1052,7 @@ acs_modetransport <-
     modetrans_other_se       = se_proportion(Other_est, All_est, Other_moe/1.645, All_moe/1.645),
     modetrans_other_count    = All_est
     ) %>%
-  select(-Bike_est, -Bike_moe, -Car_est, -Car_moe, -Walk_est, -Walk_moe, -PublicTransport_est, -PublicTransport_moe, 
+  dplyr::select(-Bike_est, -Bike_moe, -Car_est, -Car_moe, -Walk_est, -Walk_moe, -PublicTransport_est, -PublicTransport_moe, 
             -WorkAtHome_est, -WorkAtHome_moe, -Other_est, -Other_moe, -All_est, -All_moe)
 
 # Check summary statistics.
@@ -1101,7 +1101,7 @@ acs_emp <-
     lfrate_m_se    = se_proportion(lf_m_est, pop_m_est, lf_m_se, pop_m_se),
     lfrate_m_count = pop_m_est
   ) %>%
-  select(-pop_f_est, -pop_f_se, -lf_f_est, -lf_f_se, -emp_f_est, -emp_f_se, 
+  dplyr::select(-pop_f_est, -pop_f_se, -lf_f_est, -lf_f_se, -emp_f_est, -emp_f_se, 
          -pop_m_est, -pop_m_se, -lf_m_est, -lf_m_se, -emp_m_est, -emp_m_se )
 
 acs_emp_age25to34 <- 
@@ -1140,7 +1140,7 @@ acs_emp_age25to34 <-
     lfrate_m_a2534_se    = se_proportion(lf_m_a2534_est, pop_m_a2534_est, lf_m_a2534_se, pop_m_a2534_se),
     lfrate_m_a2534_count = pop_m_a2534_est
   ) %>%
-  select(-pop_f_a2534_est, -pop_f_a2534_se, -lf_f_a2534_est, -lf_f_a2534_se, -emp_f_a2534_est, -emp_f_a2534_se, 
+  dplyr::select(-pop_f_a2534_est, -pop_f_a2534_se, -lf_f_a2534_est, -lf_f_a2534_se, -emp_f_a2534_est, -emp_f_a2534_se, 
          -pop_m_a2534_est, -pop_m_a2534_se, -lf_m_a2534_est, -lf_m_a2534_se, -emp_m_a2534_est, -emp_m_a2534_se )
 
 
@@ -1206,13 +1206,13 @@ for (gender_value in c("Female", "Male")) {
         new_var4 = (eval(parse(text = paste0(r, "_coll_moe")))/1.645)^2,
         ) %>%
       mutate(
-        !!newvar_est := rowSums(select(., paste0(r, "_lesshs_est"), 
+        !!newvar_est := rowSums(dplyr::select(., paste0(r, "_lesshs_est"), 
                                           paste0(r, "_hsgrad_est"), 
                                           paste0(r, "_somecoll_est"), 
                                           paste0(r, "_coll_est")), na.rm = FALSE),
-        !!newvar_moe := 1.645 * sqrt(rowSums(select(., "new_var1", "new_var2", "new_var4", "new_var4"), na.rm = FALSE))
+        !!newvar_moe := 1.645 * sqrt(rowSums(dplyr::select(., "new_var1", "new_var2", "new_var4", "new_var4"), na.rm = FALSE))
         ) %>%
-      select(-"new_var1", -"new_var2", -"new_var3", -"new_var4")
+      dplyr::select(-"new_var1", -"new_var2", -"new_var3", -"new_var4")
     }
   
   # Construct female education category variables (as share of female universe).
@@ -1267,25 +1267,25 @@ for (gender_value in c("Female", "Male")) {
         oth_all_var    = (oth_all_moe/1.645)^2) %>%
       mutate(
         ### Construct new variables
-        !!newvar := ifelse(rowSums(select(., "as_all_est", "amind_all_est", "bl_all_est", 
+        !!newvar := ifelse(rowSums(dplyr::select(., "as_all_est", "amind_all_est", "bl_all_est", 
                                           "wh_all_est", "pacisl_all_est", "mult_all_est", 
                                           "oth_all_est"), na.rm = FALSE)!=0,
-                            rowSums(select(., as, amind, bl, wh, pacisl, mult, oth), na.rm = FALSE) / 
-                            rowSums(select(., "as_all_est", "amind_all_est", "bl_all_est", 
+                            rowSums(dplyr::select(., as, amind, bl, wh, pacisl, mult, oth), na.rm = FALSE) / 
+                            rowSums(dplyr::select(., "as_all_est", "amind_all_est", "bl_all_est", 
                                                 "wh_all_est", "pacisl_all_est", "mult_all_est", 
                                                 "oth_all_est"), na.rm = FALSE),
                             NA),
-        !!newvar_se := se_proportion(rowSums(select(., as, amind, bl, wh, pacisl, mult, oth), na.rm = FALSE), 
-                                     rowSums(select(., "as_all_est", "amind_all_est", "bl_all_est", 
+        !!newvar_se := se_proportion(rowSums(dplyr::select(., as, amind, bl, wh, pacisl, mult, oth), na.rm = FALSE), 
+                                     rowSums(dplyr::select(., "as_all_est", "amind_all_est", "bl_all_est", 
                                                        "wh_all_est", "pacisl_all_est", "mult_all_est", 
                                                        "oth_all_est"), na.rm = FALSE),
-                                     sqrt(rowSums(select(., as_var, amind_var, bl_var, wh_var, pacisl_var, mult_var, oth_var), na.rm = FALSE)),
-                                     sqrt(rowSums(select(., as_all_var, amind_all_var, bl_all_var, wh_all_var, pacisl_all_var, mult_all_var, oth_all_var), na.rm = TRUE))
+                                     sqrt(rowSums(dplyr::select(., as_var, amind_var, bl_var, wh_var, pacisl_var, mult_var, oth_var), na.rm = FALSE)),
+                                     sqrt(rowSums(dplyr::select(., as_all_var, amind_all_var, bl_all_var, wh_all_var, pacisl_all_var, mult_all_var, oth_all_var), na.rm = TRUE))
                                      ),
-        !!newvar_count := rowSums(select(., "as_all_est", "amind_all_est", "bl_all_est", 
+        !!newvar_count := rowSums(dplyr::select(., "as_all_est", "amind_all_est", "bl_all_est", 
                                          "wh_all_est", "pacisl_all_est", "mult_all_est", 
                                          "oth_all_est"))) %>%
-      select(-as_var, -amind_var, -bl_var, -wh_var, -pacisl_var, -mult_var, -oth_var, 
+      dplyr::select(-as_var, -amind_var, -bl_var, -wh_var, -pacisl_var, -mult_var, -oth_var, 
              -as_all_var, -amind_all_var, -bl_all_var, -wh_all_var, -pacisl_all_var, -mult_all_var, -oth_all_var)
   
   } 
@@ -1327,7 +1327,7 @@ for (gender_value in c("Female", "Male")) {
   
   acs_educfem <-
     acs_educfem %>%
-    select(-amind_all_est, -amind_all_moe, -amind_lesshs_est, -amind_lesshs_moe,
+    dplyr::select(-amind_all_est, -amind_all_moe, -amind_lesshs_est, -amind_lesshs_moe,
            -amind_hsgrad_est, -amind_hsgrad_moe, -amind_somecoll_est, -amind_somecoll_moe, -amind_coll_est, -amind_coll_moe,
            -bl_all_est, -bl_all_moe, -bl_lesshs_est, -bl_lesshs_moe,
            -bl_hsgrad_est, -bl_hsgrad_moe, -bl_somecoll_est, -bl_somecoll_moe, -bl_coll_est, -bl_coll_moe,
@@ -1366,7 +1366,7 @@ acs_educ <- merge(acs_educ[["Female"]],
 exclude_vars <- names(acs_educfem) %in% c("source", "endyear", "geo", "geo_val", "NAME")
 summary(acs_educfem[!exclude_vars])
 
-sapply(select(acs_educfem, matches("est$")), 
+sapply(dplyr::select(acs_educfem, matches("est$")), 
        pct_nonmiss) %>% 
   #hist()
   sort() %>% round(2)
@@ -1424,7 +1424,7 @@ for (r in c("amind", "as", "bl", "mult", "oth", "pacisl", "wh")){
   
 acs_raceeth <-
   acs_raceeth %>%
-  select(., 1:5, contains("raceeth"))
+  dplyr::select(., 1:5, contains("raceeth"))
 
 # Check summary statistics.
 
@@ -1446,7 +1446,7 @@ acs_grandparents <-
     gpresp_est   = GCR_est/All_est,
     gpresp_se    = se_proportion(GCR_est, All_est, GCR_moe/1.645, All_moe/1.645),
     gpresp_count = All_est) %>%
-  select(., 1:5, contains("gpresp"))
+  dplyr::select(., 1:5, contains("gpresp"))
 # Check summary statistics.
 
 exclude_vars <- names(acs_grandparents) %in% c("source", "endyear", "geo", "geo_val", "NAME")
@@ -1468,7 +1468,7 @@ acs_povline <-
     belowpov_est   = BelowPov_est/All_est,
     belowpov_se    = se_proportion(BelowPov_est, All_est, BelowPov_moe/1.645, All_moe/1.645),
     belowpov_count = All_est) %>%
-  select(., 1:5, contains("belowpov_"), -BelowPov_est, -BelowPov_moe)
+  dplyr::select(., 1:5, contains("belowpov_"), -BelowPov_est, -BelowPov_moe)
 
 # Check summary statistics.
 
@@ -1505,7 +1505,7 @@ acs_famtype <-
     pctFemale_noSp_se = se_proportion(Female_noSp_est, famtype_tot_est, Female_noSp_se, famtype_tot_se),
       pctMale_noSp_se = se_proportion(  Male_noSp_est, famtype_tot_est,   Male_noSp_se, famtype_tot_se),
         pctMarried_se = se_proportion(    Married_est, famtype_tot_est,     Married_se, famtype_tot_se)) %>%
-  select(., 1:5, matches("^pct"))
+  dplyr::select(., 1:5, matches("^pct"))
 
 # Check summary statistics.
 

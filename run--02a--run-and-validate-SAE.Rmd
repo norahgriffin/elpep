@@ -289,7 +289,7 @@ if (rerun_sae) {
     sae_results_incpov_ctrls2534_612 <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child612_sae, sae_controls_added_2534)
     sae_results_ccdf_wk_sp_05        <- run_sae_combos_bycontrols("work_spouse_status",   acs1_child05_sae,  sae_controls_added_2534)
     sae_results_ccdf_wk_pov_05       <- run_sae_combos_bycontrols(work_incpov_spec_field, acs1_child05_sae,  sae_controls_added_2534)
-    sae_results_ccdf_wk_pov_12       <- run_sae_combos_bycontrols(work_incpov_spec_field, acs1_child612_sae, sae_controls_added_2534)
+    sae_results_ccdf_wk_pov_612      <- run_sae_combos_bycontrols(work_incpov_spec_field, acs1_child612_sae, sae_controls_added_2534)
   }
   
   specs <- c("incpov_simple_05", 

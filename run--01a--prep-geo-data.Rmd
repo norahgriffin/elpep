@@ -63,7 +63,7 @@ geo_crosswalk_zcta <-
 
 geo_crosswalk <-
   merge(geo_crosswalk_puma,
-        geo_crosswalk_zcta %>% select(GEOID, ZCTA = ZCTA5),
+        geo_crosswalk_zcta %>% dplyr::select(GEOID, ZCTA = ZCTA5),
         by = "GEOID",
         all.x = TRUE) %>% 
   data.table()
