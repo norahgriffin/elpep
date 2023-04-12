@@ -111,7 +111,7 @@ where $g$ is our small geography (tract), and $G$ is the big geography (PUMA).
 
 However, the share for the smaller geography would be noisier given the smaller population that it represents as a sampled measure. Thus, we assume
 
-$$\sigma_{gt-1}^{c,direct}=sigma_{Gt-1}^c\frac{n_{Gt-1}}{n_{gt-1}}$$
+$$\sigma_{gt-1}^{c,direct}=\Sigma_{Gt-1}^c\frac{n_{Gt-1}}{n_{gt-1}}$$
 
 <!-- /!\ NSM: Note that this above adjustment is no longer current. It's not maintained because the standard error is not a property of the PUMA, but of the survey sample of the PUMA. Making the adjustment to recognize the noise of the tracts is an artificial one, hoping that sampling variation approximates variation due to spatial heterogeneity. Not clear what the most principled way is to do that. Perhaps ACS5 data could usefully approximate the latter... -->
 

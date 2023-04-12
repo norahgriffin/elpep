@@ -1,12 +1,15 @@
 
 ### Install packages -----------------------------------------------------------
-packages.list <- c("knitr", "ggplot2", "Rcpp", "Hmisc", "dplyr", "data.table", "tidyr", 
-                   "VGAM", "stringr", "glmnet", "censusapi", "plotly", "crosstalk", 
-                   "DT", "kableExtra", "emdi", "glue", "forcats", "scales", "zoo",
-                   "moments", "rgdal", "leaflet", "RColorBrewer", "ggalluvial",
-                   "tigris", "extrafont", "remotes", "broom", "sf", "lwgeom",
-                   "foreach", "doParallel", "xlsx", "tidycensus", "fredr",
-                   "ipumsr", "tsibble", "forecast", "fable")
+# Due to potential name conflicts (e.g. often with select() or filter()), the
+# data manipulation packages--notably dplyr--are loaded last to ensure that
+# their versions of these functions are not masked
+packages.list <- 
+  c("knitr", "ggplot2", "Rcpp", "Hmisc", "VGAM", "stringr", "glmnet", "censusapi",
+    "plotly", "crosstalk", "DT", "kableExtra", "emdi", "glue", "forcats", "scales",
+    "zoo", "moments", "rgdal", "leaflet", "RColorBrewer", "ggalluvial", "tigris",
+    "extrafont", "remotes", "broom", "sf", "lwgeom", "foreach", "doParallel",
+    "xlsx", "tidycensus", "fredr", "ipumsr", "tsibble", "forecast", "fable",
+    "data.table", "tidyr", "dplyr")
 for (p in packages.list) {
   if (!p %in% installed.packages()[, "Package"]) install.packages(p)
   # Load the package quietly
