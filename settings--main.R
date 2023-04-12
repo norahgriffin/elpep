@@ -8,8 +8,9 @@ packages.list <-
     "plotly", "crosstalk", "DT", "kableExtra", "emdi", "glue", "forcats", "scales",
     "zoo", "moments", "rgdal", "leaflet", "RColorBrewer", "ggalluvial", "tigris",
     "extrafont", "remotes", "broom", "sf", "lwgeom", "foreach", "doParallel",
-    "xlsx", "tidycensus", "fredr", "ipumsr", "tsibble", "forecast", "fable",
+    "xlsx", "tidycensus", "fredr", "ipumsr", "tsibble", "forecast", "fable", "sae",
     "data.table", "tidyr", "dplyr")
+
 for (p in packages.list) {
   if (!p %in% installed.packages()[, "Package"]) install.packages(p)
   # Load the package quietly

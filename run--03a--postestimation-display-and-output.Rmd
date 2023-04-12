@@ -29,7 +29,11 @@ if (str_detect(my_output_tag, "IL2022")) {
   # up-to-date estimates as possible
   nowcast_selected_sens <-
     nowcast_out[cps_geo_subsample == "none" & 
-                cps_base_recency == "most_recent"]  
+                cps_base_recency == "most_recent"] %>% 
+    mutate(age = str_extract(sae_spec, "\\d+$"),
+           age = case_when(age == "05"  ~ "age_0to5",
+                           age == "612" ~ "age_6to12"),
+           sae_spec = str_replace(sae_spec, "_\\d+$", ""))  
 } else if (str_detect(my_output_tag, "Cook|Chi")) {
   # Rationale is we are focused on a metro areas, and we want estimates for 2022
   # that are parallel to 2021, given that this method is part of a sequence of
@@ -112,7 +116,7 @@ nowcast_parallel_preshape <-
             nowcast_parallel_pfa_elig,
             nowcast_parallel_upk_elig,
             nowcast_parallel_ccdf_elig) %>% 
-  select(GEOID, outcome_var, age, base_share, base_share_se, nowcast_share, nowcast_share_se) %>% 
+  dplyr::select(GEOID, outcome_var, age, base_share, base_share_se, nowcast_share, nowcast_share_se) %>% 
   # /!\ ** This unique() should not be necessary. However, it's occurring because
   # there are duplicates resulting from a merge of the crosswalk file, due to
   # overlaps with ZCTAs. There should be a cleaner, unique crosswalk of census
@@ -142,7 +146,7 @@ pop_by_age_long <-
   # /!\ Here again is where we need to bring in a proper standard error for
   # population count estimates
   mutate(pop_count_se = 0) %>% 
-  select(-name)
+  dplyr::select(-name)
 
 nowcast_parallel_counts <- 
   nowcast_parallel %>% 
@@ -168,7 +172,7 @@ We compare now-cast estimates to baseline SAE estimates for only Head Start elig
 ```{r reshape}
 share_pre_post <- 
   nowcast_parallel_counts %>% 
-  select(-year) %>% 
+  dplyr::select(-year) %>% 
   pivot_longer(cols = matches("share|count")) %>% 
   unite(wide_name, name, pd, sep = "_") %>% 
   pivot_wider(names_from = wide_name,

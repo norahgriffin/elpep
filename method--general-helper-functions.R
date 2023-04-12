@@ -194,8 +194,8 @@ fpl_by_year <-
                       8,     42380,     43430,    44120,      44660,     46630)
 
 # Augment the table to generate FPL values for families up to size 20
-fpl_by_year_fam_size7 <- fpl_by_year %>% filter(fpl_fam_size == 7) %>% select(-fpl_fam_size)
-fpl_by_year_fam_size8 <- fpl_by_year %>% filter(fpl_fam_size == 8) %>% select(-fpl_fam_size)
+fpl_by_year_fam_size7 <- fpl_by_year %>% filter(fpl_fam_size == 7) %>% dplyr::select(-fpl_fam_size)
+fpl_by_year_fam_size8 <- fpl_by_year %>% filter(fpl_fam_size == 8) %>% dplyr::select(-fpl_fam_size)
 fpl_by_year_diff <- fpl_by_year_fam_size8 - fpl_by_year_fam_size7
 
 fpl_by_year_aug <- fpl_by_year
@@ -226,7 +226,7 @@ fpl_by_month <-
   merge(cpi,
         by = "fpl_year") %>% 
   mutate(fpl = fpl * ytd_infl) %>% 
-  select(fpl_year, fpl_month, fpl_fam_size, ytd_infl, fpl) %>% 
+  dplyr::select(fpl_year, fpl_month, fpl_fam_size, ytd_infl, fpl) %>% 
   data.table()
 
 if (FALSE) {

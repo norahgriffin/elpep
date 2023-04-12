@@ -69,7 +69,7 @@ nowcast_parallel_counts <-
 # Prep overall population for under 5 breakdown
 pop_by_age_under5 <- 
   pop_by_age %>% 
-  select(GEOID, year, age_0to2 = age_0to2_count, age_3to5 = age_3to5_count) %>% 
+  dplyr::select(GEOID, year, age_0to2 = age_0to2_count, age_3to5 = age_3to5_count) %>% 
   pivot_longer(cols = matches("age"),
                names_to = "child_agegroup",
                values_to = "pop_count")
@@ -77,10 +77,10 @@ pop_by_age_under5 <-
 nowcast_elig_counts_0to5 <- 
   nowcast_parallel_counts %>% 
   filter(age == "age_0to5") %>% 
-  merge(age_breakdown_byoutcome %>% select(outcome_var, child_agegroup, pct_age_of_lt5),
+  merge(age_breakdown_byoutcome %>% dplyr::select(outcome_var, child_agegroup, pct_age_of_lt5),
         by = "outcome_var",
         allow.cartesian = TRUE) %>% 
-  select(-pop_count) %>% 
+  dplyr::select(-pop_count) %>% 
   merge(pop_by_age_under5,
         by = c("GEOID", "year", "child_agegroup"),
         all.x = TRUE) %>% 
@@ -88,9 +88,9 @@ nowcast_elig_counts_0to5 <-
          count_se = pct_age_of_lt5 * count_se)
 
 nowcast_elig_counts_final <- 
-  bind_rows(nowcast_elig_counts_0to5 %>% select(-age, age = child_agegroup),
+  bind_rows(nowcast_elig_counts_0to5 %>% dplyr::select(-age, age = child_agegroup),
             nowcast_parallel_counts) %>% 
-  select(outcome_var, GEOID, pd, year, age, share, share_se, count, count_se, pop_count, pop_count_se) %>% 
+  dplyr::select(outcome_var, GEOID, pd, year, age, share, share_se, count, count_se, pop_count, pop_count_se) %>% 
   arrange(outcome_var, GEOID, pd, age) %>% 
   data.table()
 
@@ -224,7 +224,7 @@ write_agg_output <- function(x, agg_level, sheet_name, add, out_label) {
            share_se = se_proportion(count, pop_count, count_se, pop_count_se),
            share_lb = pmax(share + qnorm(.1)*share_se, 0) %>% replace_na(0),
            share_ub = pmin(share + qnorm(.9)*share_se, 1) %>% replace_na(0)) %>% 
-    select(-count_se, -share_se, -pop_count, -pop_count_se) %>% 
+    dplyr::select(-count_se, -share_se, -pop_count, -pop_count_se) %>% 
     pivot_longer(cols = matches("(count|share)(_|$)")) %>% 
     mutate(stat = case_when(name %like% "count" ~ "#",
                             name %like% "share" ~ "%"),
@@ -233,7 +233,7 @@ write_agg_output <- function(x, agg_level, sheet_name, add, out_label) {
                             TRUE ~ ""),
            
            label = glue("{Age} {Outcome}, {date_range} -- {stat}{calc}")) %>% 
-    select(-age, -pd, -outcome_var, -Age, -Outcome, -name, -stat, -calc) %>% 
+    dplyr::select(-age, -pd, -outcome_var, -Age, -Outcome, -name, -stat, -calc) %>% 
     pivot_wider(names_from = label,
                 values_from = value)
   
@@ -332,7 +332,7 @@ nowcast_elig_counts_final_aug <-
   mutate(payment_reg = map_county_to_payreg(County))
 if (FALSE) {
   nowcast_elig_counts_final_aug %>% 
-    select(payment_reg, County) %>% 
+    dplyr::select(payment_reg, County) %>% 
     unique() %>% 
     arrange(payment_reg, County)
 }
@@ -356,7 +356,7 @@ cat("#### For Auxiliary Geography -- Examine Pre-Post CCDF Changes Directly")
 # Generate paired bar at aux level
 aux_lvl_ests_long <- 
   ccdf_ests_aux %>% 
-  select(my_aux_geo_field, ccdf_share_pre, ccdf_share_post) %>% 
+  dplyr::select(my_aux_geo_field, ccdf_share_pre, ccdf_share_post) %>% 
   pivot_longer(cols = -my_aux_geo_field) %>% 
   filter(!is.na(my_aux_geo_field))
 
@@ -408,7 +408,7 @@ static_map_val <- function(estimates,
   est_plot <- 
     estimates %>% 
     filter(outcome_var %like% outcome) %>% 
-    select(-count, -count_se, -pop_count, -pop_count_se, -share_se)
+    dplyr::select(-count, -count_se, -pop_count, -pop_count_se, -share_se)
   
   est_wide <- 
     est_plot %>% 
