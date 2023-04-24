@@ -42,7 +42,7 @@ Hawaii and Alaska are dropped, as they follow different federal poverty guidelin
 <!-- Note that subsetting to match households with both pre and post measures only occurs later, at the point that the method calculates transition ratios. We perform this match--and implicit subsetting--at that stage because a range of choices is may be reasonable and we save the application of discretion for that later stage. -->
 
 ```{r read and subset cps microdata}
-cps <- fread(file = glue("{input_path}{cps_raw}.csv.gz"))
+cps <- fread(file = glue("{input_path}{cps_raw}.csv"))
 cps_sub <- 
   cps %>% 
   .[CPSID != 0 &                           # This rules out ASEC over-sample households (see documentation on `CPSID`)
@@ -482,9 +482,9 @@ ggplot(comp_sub[faminc_draw < 150000],
                        "Sample is March 2020 and 2021, Income Summed for HH Members Aged 15+",
                        "Adjusted income below top-coded limit of $150,000"),
        x = "EIP-Adjusted Family Income (Basic Monthly)",
-       y = "Summed Wage and UI (ASEC)") +
-  myTheme +
-  theme(legend.position = "bottom")
+       y = "Summed Wage and UI (ASEC)") 
+  #myTheme +
+  #theme(legend.position = "bottom")
 ```
 
 <!-- For completeness, we also compare total family income for the basic monthly and ASEC data. Here, the summed "total income" measure in the ASEC is clearly above that for FAMINC, even at lower incomes where divide/investment/rent etc sources of income are less likely. Checking on definitions: -->
@@ -516,9 +516,9 @@ ggplot(comp_sub[faminc_draw < 150000],
        subtitle = glue("Sample is March 2020 and 2021, Income Summed for HH Members Aged 15+\n",
                        "Adjusted income below top-coded limit of $150,000"),
        x = "Family Income (Basic Monthly)",
-       y = "Summed Total Income (ASEC)") +
-  myTheme +
-  theme(legend.position = "bottom")
+       y = "Summed Total Income (ASEC)")
+  #myTheme +
+  #theme(legend.position = "bottom")
 
 ```
 

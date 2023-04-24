@@ -14,8 +14,8 @@ direct_est_tract <- function(data,          # Individual-level sample data used 
   # Use the `emdi::direct()` function to calculate PUMA-level stats and standard
   # errors from the sample data
   direct_est_puma <- 
-    direct(y = measure, 
-           smp_data = data %>% select(one_of(measure, "PUMA", "PWGTP")), 
+    emdi::direct(y = measure, 
+           smp_data = data %>% dplyr::select(one_of(measure, "PUMA", "PWGTP")), 
              # We subset the data here because the na.rm = TRUE argument in this
              # function call removes records with *any* missing values, 
              # regardless of whether they are the ones used directly in the run.
@@ -44,8 +44,8 @@ direct_est_tract <- function(data,          # Individual-level sample data used 
           by.y = "Domain")
   
   direct_out <- 
-    merge(direct_est_puma$ind %>% select(PUMA = Domain, share     = Mean),
-          direct_est_puma$MSE %>% select(PUMA = Domain, share_mse = Mean), 
+    merge(direct_est_puma$ind %>% dplyr::select(PUMA = Domain, share     = Mean),
+          direct_est_puma$MSE %>% dplyr::select(PUMA = Domain, share_mse = Mean), 
           by = "PUMA") %>% 
     mutate(vc_value = vul_cat_value) %>% 
     data.table()
@@ -118,7 +118,7 @@ run_sae <- function(direct_ests,                 # Direct, tract-level estimates
     # Note: because we use data.table functions for calculating fields, we 
     # use `copy()` to avoid adjusting the original data with by-reference operations
     copy(aux_data) %>% 
-    merge(geo_crosswalk %>% select(GEOID, PUMA) %>% unique(), 
+    merge(geo_crosswalk %>% dplyr::select(GEOID, PUMA) %>% unique(), 
           by = "GEOID") %>%
     .[PUMA %in% direct_ests$PUMA,
       c("GEOID", "PUMA", aux_controls, aux_n, aux_n_se),
@@ -141,7 +141,7 @@ run_sae <- function(direct_ests,                 # Direct, tract-level estimates
   # Subset the relevant direct estimates data
   direct_ests_tract <- 
     direct_ests %>% 
-    merge(geo_crosswalk %>% select(PUMA, GEOID) %>% unique(), by = "PUMA") %>% 
+    merge(geo_crosswalk %>% dplyr::select(PUMA, GEOID) %>% unique(), by = "PUMA") %>% 
     # Also merge to aux_data_use to ensure alignment of represented GEOIDs
     merge(aux_data_use, by = c("PUMA", "GEOID")) %>% 
     select(PUMA, GEOID, share, share_mse) 
@@ -276,7 +276,7 @@ run_sae <- function(direct_ests,                 # Direct, tract-level estimates
                  my_share_model_mse = prediction_tract$se.fit^2)]
     #View(cbind(fh_collected, prediction$fit, prediction$se.fit))
     comp <- merge(fh_collected_tract, 
-                  my_fh_data_tract %>% select(GEOID, my_share_model, my_share_model_se, my_share_model_mse), 
+                  my_fh_data_tract %>% dplyr::select(GEOID, my_share_model, my_share_model_se, my_share_model_mse), 
                   by = c("GEOID"))
     
     my_fh_data_puma <- 

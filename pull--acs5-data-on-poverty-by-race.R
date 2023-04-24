@@ -37,6 +37,11 @@ acs.lookup(endyear = 2019, span = 5, table.number="B17020") # Curiously, this ta
 pullSt <- "IL"
 pullCounties <- "Cook County"
 pullPlace <- "Chicago"
+
+pullSt <- "CA"
+pullCounties <- "Orange County"
+#pullPlace <- "Chicago"
+
 pullYears <- 2019
 pullSpan <- 5
 pullTables <- paste0("B17001", c("", LETTERS[1:9]))

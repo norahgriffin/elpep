@@ -155,6 +155,9 @@ sae_controls_added_2534_612 <-
 
 ```{r subset data for the SAE}
 acs1_child[j = PUMA := str_pad(PUMA, width = 5, side = "left", pad = "0")]
+#norah added this: 
+geo_crosswalk[j = PUMA := str_pad(PUMA, width = 5, side = "left", pad = "0")]
+#-----------------
 stopifnot(all(geo_crosswalk$PUMA %in% acs1_child$PUMA))
 
 acs1_child05_sae <- 
@@ -197,6 +200,10 @@ pop_by_age_base <-
   select(GEOID, 
           age_0to5_count_base =  age_0to5_count, 
          age_6to12_count_base = age_6to12_count)
+
+#Norah added this:
+pop_by_age_base$GEOID = str_pad(pop_by_age_base$GEOID, 11, pad = "0")
+#-----------------
 
 # Merge to the ACS5-year data
 acs5tract_sae_counts <- 
@@ -251,6 +258,7 @@ run_sae_combos_bycontrols <- function(vul_vars, sae_input_data, my_controls) {
 
 
 ```{r run SAE method}
+
 if (rerun_sae) {
  
   parallelize_sae <- TRUE

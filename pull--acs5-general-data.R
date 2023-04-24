@@ -13,6 +13,9 @@
 #--------------------------------------------------------------------#
 
 # Import functions
+#norah added this:
+my_state_fip = "06"
+#------------------
 
 library(glue)
 source(glue("{code_path}settings--main.R"))

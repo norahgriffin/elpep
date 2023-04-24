@@ -423,7 +423,7 @@ pop_bg_2010 <-
 # It's necessary to sign in to download
 
 crosswalk <- 
-  read_nhgis(glue("{input_path}nhgis_bg2010_tr2020_{my_state_fip}.zip")) %>% 
+  read_nhgis(glue("{input_path}nhgis_bg2010_tr2020_{my_state_fip}.csv")) %>% 
   select(bg_GEOID = bg2010ge, GEOID20 = tr2020ge, wt_pop)
 
 options(scipen=999)
@@ -434,6 +434,10 @@ options(scipen=999)
 #   https://www.census.gov/geographies/reference-files/time-series/geo/relationship-files.html
 # Documentation is here:
 #   https://www2.census.gov/geo/pdfs/maps-data/data/rel2020/tract/explanation_tab20_tract20_tract10.pdf
+#Norah had to change this:
+my_state_fip = "6"
+#---------------------
+
 tr_xwalk <- 
   fread("https://www2.census.gov/geo/docs/maps-data/data/rel2020/tract/tab20_tract20_tract10_natl.txt") %>% 
   filter(str_detect(GEOID_TRACT_20, glue("^{my_state_fip}"))) %>% 
@@ -458,6 +462,8 @@ if (FALSE) {
   tr_xwalk$GEOID_TRACT_20 %>% unique() %>% length() #3,265
   tr_xwalk$GEOID_TRACT_10 %>% unique() %>% length() #3,124
 }
+
+tr_xwalk$GEOID_TRACT_20 = str_pad(tr_xwalk$GEOID_TRACT_20, 11, pad = "0")
 ```
 
 

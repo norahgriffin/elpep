@@ -74,8 +74,7 @@ visualize_cps_transitions <- function(trans_calcs, # transition calculations out
   facet_grid(~ outcome_label) +
   labs(x = vul1_label,
        y = "# Children Eligible in Post\nper 1.0 Children at Baseline",
-       title = title) +
-  myTheme
+       title = title) 
 }
 ```
 
@@ -310,8 +309,7 @@ ggplot(comp_ratios_loc,
                     values = chHexs) +
   labs(x = "",
        y = "Transition Ratio",
-       title = "Transition Ratios by CPS Geographic Subset") +
-  myTheme
+       title = "Transition Ratios by CPS Geographic Subset") 
 ```
 
 #### Examine transitions into income bands by CPS cohort
@@ -351,8 +349,7 @@ ggplot(comp_ratios_cohort,
                 position = position_dodge(0.9)) +
   facet_wrap(~ fam_incpov_ratio_cat_by100) +
   scale_fill_manual(name = "",
-                    values = chHexs) +
-  myTheme
+                    values = chHexs)
 ```
 
 ## Implement the Now-Casting Method

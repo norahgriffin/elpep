@@ -33,6 +33,8 @@ if (!file.exists(acs1_save_file)) {
 } else {
   acs1 <- fread(file = acs1_save_file)
 }
+
+
 ```
 
 
@@ -50,6 +52,8 @@ ACS 1-Year microdata are subset to households not living in group quarters, to `
 ```{r subset microdata}
 # TYPE (Census) -- 1 - Housing unit, 2 - group quarters
 # Sample restricted to housing unit only
+my_state_fip = 6
+
 acs1 <- 
   acs1[TYPE %in% c(1) &
          ST == my_state_fip &

@@ -37,6 +37,10 @@ if ("my_county" %in% objects()) {
 <!-- ### Load Geographic Crosswalks ------------------------------------------->
 
 ```{r prepare ACS 5-year crosswalk data}
+
+#Norah added this 
+my_state_fip = "6"
+#---------------
 geo_crosswalk_puma <-
   fread("https://www2.census.gov/geo/docs/maps-data/data/rel/2010_Census_Tract_to_2010_PUMA.txt") %>% 
     # for reference, this is the 2020 tract-to-PUMA crosswalk. While ACS5 data
