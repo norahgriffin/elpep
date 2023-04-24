@@ -38,8 +38,8 @@ pullSt <- "IL"
 pullCounties <- "Cook County"
 pullPlace <- "Chicago"
 
-pullSt <- "CA"
-pullCounties <- "Orange County"
+#pullSt <- "CA"
+#pullCounties <- "Orange County"
 #pullPlace <- "Chicago"
 
 pullYears <- 2019
