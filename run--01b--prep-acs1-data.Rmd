@@ -183,7 +183,9 @@ acs1_child <-
                        RAC2P == 2 ~ "black",
                        TRUE ~ "other_multiple"),
            child_hispanic = 1*(HISP != 1),
-           fam_incpov_ratio_cat_mix   = bin_incpov_ratio(fam_incpov_ratio, pov_breaks = c(0, 0.50, 1.00, 2.00, 3.00)),
+           #fam_incpov_ratio_cat_mix   = bin_incpov_ratio(fam_incpov_ratio, pov_breaks = c(0, 0.50, 1.00, 2.00, 3.00)),
+           #fam_incpov_ratio_cat_mix   = bin_incpov_ratio(fam_incpov_ratio, pov_breaks = c(0, 0.50, 0.75, 1.00, 2.00, 3.00)),
+           fam_incpov_ratio_cat_mix   = bin_incpov_ratio(fam_incpov_ratio, pov_breaks = c(0, 0.80, 1.00, 2.00, 3.00)),
            fam_incpov_ratio_cat_to185 = bin_incpov_ratio(fam_incpov_ratio, pov_breaks = c(0, 0.50, 1.25, 1.85, 3.00)),
            fam_incpov_ratio_cat_by50  = bin_incpov_ratio(fam_incpov_ratio, pov_breaks = seq(0, 3, by = 0.5)),
            fam_incpov_ratio_cat_by75  = bin_incpov_ratio(fam_incpov_ratio, pov_breaks = seq(0, 3, by = 0.75)),
@@ -210,6 +212,7 @@ plot_freq <- function(meas) {
     stat_count() + 
     theme(axis.text.x = element_text(angle = 90))
 }
+plot_freq("fam_incpov_ratio_cat_mix")
 plot_freq("fam_incpov_ratio_cat_by50")
 plot_freq("fam_incpov_ratio_cat_by100")
 plot_freq("work_spouse_status")

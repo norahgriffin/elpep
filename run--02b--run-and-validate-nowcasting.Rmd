@@ -394,6 +394,8 @@ cps_child_base_post <-
          
          # Develop income measures in parallel with what is developed in the SAE
          # methods
+         share_0_80    = 1*(fam_incpov_ratio_cat_byMix  ==   "0%-80%"),
+         share_80_100  = 1*(fam_incpov_ratio_cat_byMix  ==  "80%-100%"),
          share_0_50    = 1*(fam_incpov_ratio_cat_by50_adj  ==   "0%-50%"),
          share_50_100  = 1*(fam_incpov_ratio_cat_by50_adj  ==  "50%-100%"),
          share_50_125  = 1*(fam_incpov_ratio_cat_to185_adj ==  "50%-125%"),
@@ -488,6 +490,7 @@ pivot_sae_wide <- function(sae_spec, share_var) {
     pivot_wider(id_cols = c("GEOID"), 
                 names_from = vc_value, 
                 values_from = share_var)
+  
 }
 
 # for (spec in specs) {
@@ -517,8 +520,14 @@ transition_pred_vars_acs5 <-
   c("ed_lths", "ed_hs", "ed_somecoll", "ed_coll",
     "pctFemale_noSp_est", "pctMale_noSp_est", "pctMarried_est")
 
+#transition_pred_vars_toadd_pov      <- 
+#  c("share_0_50", "share_50_100", "share_100_200", "share_200_300", "share_300")
+
 transition_pred_vars_toadd_pov      <- 
-  c("share_0_50", "share_50_100", "share_100_200", "share_200_300", "share_300")
+  c("share_0_80", "share_80_100", "share_100_200", "share_200_300", "share_300")
+
+#transition_pred_vars_toadd_pov      <- 
+#  c("share_0_80", "share_80_100", "share_100_200", "share_200_300", "share_300")
 
 transition_pred_vars_toadd_ccdf_elig_pov <- 
   str_subset(colnames(cps_child_base_post),
@@ -597,6 +606,9 @@ estimate_transition_counts <- function(sae_spec_name, share_calc_var, outcome_va
     unique() %>% 
     setdiff(transition_pred_vars_toomit)
   
+  #print("pred_vars")
+
+  
   est_apply_trans(cps_trans_data  = transition_data,
                   outcome_var     = outcome_var,
                   pred_vars       = pred_controls,     
@@ -657,8 +669,10 @@ for (cps_recency in c("most_recent", "allbase")) {
                           "hs_elig_post_adj", 
                           "pfa_elig_post_adj", 
                           "upk_elig_post_adj", 
-                          "ccdf_elig_tight_inc_adj")
+                          "ccdf_elig_tight_inc_adj",
+                          "calworks_elig_inc_adj")
         sae_controls <- transition_pred_vars_toadd_pov
+        print(sae_controls)
       } else if (str_detect(sae_spec, "^ccdf")) {
         outcome_vars <- "ccdf_elig_tight_inc_adj"
         sae_controls <- 
@@ -673,6 +687,11 @@ for (cps_recency in c("most_recent", "allbase")) {
         
         # print(glue("Running CPS recency {cps_recency}, CPS geo subsample {cps_geo_subsample}, ",
         #            "sae_spec {sae_spec}, outcome variable {outcome_var}"))
+        #print("share calc")
+        #print(share_calc_var)
+        #print()
+        #print(transition data)
+        
         count_est_output <- 
           estimate_transition_counts(sae_spec_name   = glue("sae_results_{sae_spec}"),
                                      share_calc_var  = ifelse(use_only_sae_model_estimates,

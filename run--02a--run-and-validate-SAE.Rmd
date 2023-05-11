@@ -1,11 +1,11 @@
-
+```{=html}
 <!-- This .Rmd file is set up to run either independently by checking for 
 the presence of necessary objects in the global environment and running 
 related scripts if not, or also as a child to the "main-doc". For that latter
 reason, comments and headings that are not relevant to a final report to
 pubic audiences are suppressed or moved to code chunks that can optionally be 
 `echo`ed as desired. -->
-
+```
 ```{r}
 # run scripts for necessary packages and objects as necessary
 if (!"chHexs"        %in% objects()) source("settings--main.R", echo = FALSE)
@@ -19,9 +19,9 @@ if (!"direct_est_tract"     %in% objects()) source_rmd("method--small-area-estim
 # script interactively, but not when called by `run--00`. This is significant
 # in that 00 will check that this has been run, set rerun_sae to FALSE in order
 # to focus on report rendering and not this time-consuming run.
+# icome
 rerun_sae <- TRUE
 ```
-
 
 ```{r load data for SAE runs}
 
@@ -111,8 +111,13 @@ try(show_acs_n_bys(c("work_incpov_status185")), silent = TRUE)
 # it's useful to build comparisons if there is alignment.
 
 incpov_spec_field <- "fam_incpov_ratio_cat_mix" # "fam_incpov_ratio_cat_by100"
-incpov_ref_value  <- "0%-50%"  # "0%-100%"
+#incpov_ref_value  <- "0%-50%"  # "0%-100%"
+incpov_ref_value  <- "0%-80%"  # "0%-100%"
+#incpov_ref_value  <- "0%-74%"  # "0%-100%
+#incpov_ranges_for_estimation <- c("0to74", "75to149", "150to199", "200to299")
+
 incpov_ranges_for_estimation <- c("0to50", "50to100", "100to199", "200to299")
+
 
 # For the sake of building comparisons of SAE estimates, and "now"-cast estimates, 
 # the specification of work_incpov is aligned with the local CCDF threshold. Thus,
@@ -130,7 +135,6 @@ work_incpov_spec_field <-
             TRUE ~ "work_incpov_status100")
 
 ```
-
 
 ```{r set specifications for sae}
 # /!\ Consider adding race/ethnicity and industry of workers
@@ -256,12 +260,11 @@ run_sae_combos_bycontrols <- function(vul_vars, sae_input_data, my_controls) {
 }
 ```
 
-
 ```{r run SAE method}
 
 if (rerun_sae) {
  
-  parallelize_sae <- TRUE
+  parallelize_sae <- FALSE
   
   # These runs may be parallelized because they are independent, and each is 
   # very slow
@@ -306,7 +309,7 @@ if (rerun_sae) {
     sae_results_incpov_ctrls2534_612 <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child612_sae, sae_controls_added_2534_612)
     sae_results_ccdf_wk_sp_05        <- run_sae_combos_bycontrols("work_spouse_status",   acs1_child05_sae,  sae_controls_added_2534_05)
     sae_results_ccdf_wk_pov_05       <- run_sae_combos_bycontrols(work_incpov_spec_field, acs1_child05_sae,  sae_controls_added_2534_05)
-    sae_results_ccdf_wk_pov_12       <- run_sae_combos_bycontrols(work_incpov_spec_field, acs1_child612_sae, sae_controls_added_2534_612)
+    sae_results_ccdf_wk_pov_612       <- run_sae_combos_bycontrols(work_incpov_spec_field, acs1_child612_sae, sae_controls_added_2534_612)
   }
   
   specs <- c("incpov_simple_05", 
@@ -349,7 +352,7 @@ for (spec in specs) {
 
 ### Compare Direct versus FH Output Estimates
 
-As a reality check, confirm that a single "direct" estimate applies to all tracts within each given PUMA. The result should be that there are all "0" numbers of duplicates. 
+As a reality check, confirm that a single "direct" estimate applies to all tracts within each given PUMA. The result should be that there are all "0" numbers of duplicates.
 
 ```{r check that all tracts in each puma have the same direct estimate}
 sae_results_incpov_simple_05_out %>% 
@@ -460,7 +463,7 @@ sae_results_incpov_ctrls2534_05_out %>%
             model_vs_direct_above = mean(share_model > share_direct) %>% percent(),
             model_vs_direct_oneside = mean((share_model > share_direct)*(median(share_model) > share_direct)) %>% percent()) %>% 
               # This checks for % of tracts on the same side as the median) 
-  filter(vc_value == "0%-50%") %>% 
+  filter(vc_value == "0%-80%") %>% 
   datatable()
 
 ```
@@ -504,7 +507,6 @@ if (my_output_tag == "Cook2022") {
   
 }
 ```
-
 
 ### Examine the Estimated Composition of Tracts
 
@@ -839,7 +841,6 @@ if (FALSE) {
 
 ```
 
-
 ### Map Components of the SAE Estimates
 
 ```{r set up comparisons of data}
@@ -847,7 +848,8 @@ pov_p <-
   lapply(c("05", "612"),
          function(a) {
            get(glue("sae_results_incpov_ctrls2534_{a}"))$sae_out %>% 
-             filter(vc_value %in% c("0%-50%", "50%-100%")) %>% 
+             #Norah changed this from 0-50 and 50-100??? Not sure about it but i did it
+             filter(vc_value %in% c("0%-80%", "80%-100%")) %>% 
              group_by(GEOID) %>% 
              summarize(acs1_pov       = sum(share_direct),
                        sae_pov_fh     = sum(share_fh_trunc),
@@ -878,9 +880,12 @@ map_sae_components <- function(dt, fill_field, field_label, val_limits, save_lab
     .[["PUMA"]] %>% 
     unique()
   
+  print("PUMAS")
+  print(pumas_to_keep)
+  
   pumaShp_sub <-
     pumaShp %>% 
-    filter(PUMA %in% pumas_to_keep)
+    filter(PUMACE10 %in% pumas_to_keep)
   
   my_plot <- 
     ggplot() +
@@ -911,7 +916,6 @@ map_sae_components <- function(dt, fill_field, field_label, val_limits, save_lab
 }
 ```
 
-
 ```{r set value scales}
 limits_05  <- range(with(tractShp_pov, c(acs1_pov_05)),  # sae_pov_fh_05, sae_pov_model_05
                     na.rm = TRUE)
@@ -932,4 +936,3 @@ map_sae_components(my_dt, "acs5_pov",         "", val_limits = limits_05, save_l
 map_sae_components(my_dt, "sae_pov_model_05", "", val_limits = limits_05, save_label = "Poverty (SAE), age 0-5")
 
 ```
-

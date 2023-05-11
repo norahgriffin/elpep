@@ -363,10 +363,13 @@ cps_pov <-
              fam_incpov_ratio_cat_by100_adj = bin_incpov_ratio(fam_incpov_ratio_adj, pov_breaks = seq(0, 3, by = 1.00)),
              fam_incpov_ratio_cat_to185     = bin_incpov_ratio(fam_incpov_ratio,     pov_breaks = c(0, 0.50, 1.25, 1.85, 3.00)),
              fam_incpov_ratio_cat_to185_adj = bin_incpov_ratio(fam_incpov_ratio_adj, pov_breaks = c(0, 0.50, 1.25, 1.85, 3.00)),
-             fam_incpov_ratio_cat_byMix     = bin_incpov_ratio(fam_incpov_ratio,     pov_breaks = c(0, 0.5, seq(1, 3, by = 1.0))),
-             fam_incpov_ratio_cat_byMix_adj = bin_incpov_ratio(fam_incpov_ratio_adj, pov_breaks = c(0, 0.5, seq(1, 3, by = 1.0))),
+             #fam_incpov_ratio_cat_byMix     = bin_incpov_ratio(fam_incpov_ratio,     pov_breaks = c(0, 0.5, seq(1, 3, by = 1.0))),
+             fam_incpov_ratio_cat_byMix     = bin_incpov_ratio(fam_incpov_ratio,     pov_breaks = c(0, 0.8, seq(1, 3, by = 1.0))),
+             fam_incpov_ratio_cat_byMix_adj = bin_incpov_ratio(fam_incpov_ratio_adj, pov_breaks = c(0, 0.8, seq(1, 3, by = 1.0))),
              fam_incpov_ratio_le.5       = 1*(fam_incpov_ratio     <= 0.5),
              fam_incpov_ratio_le.5_adj   = 1*(fam_incpov_ratio_adj <= 0.5),
+             fam_incpov_ratio_le.8       = 1*(fam_incpov_ratio     <= 0.8),
+             fam_incpov_ratio_le.8_adj   = 1*(fam_incpov_ratio_adj <= 0.8),
              fam_incpov_ratio_le1        = 1*(fam_incpov_ratio     <= 1.0),
              fam_incpov_ratio_le1_adj    = 1*(fam_incpov_ratio_adj <= 1.0),
              fam_incpov_ratio_le2        = 1*(fam_incpov_ratio     <= 2.0),
@@ -572,8 +575,19 @@ if (FALSE) {
   View(cps_ccdf_check)
   
   # What's the frequency of other relevant status, e.g. 1 -- armed forces
-  cps_ccdf_check[, table(EMPSTAT) %>% prop.table() %>% round(2)]
-}
+  cps_ccdf_check[, table(EMPSTAT) %>% prop.table() %>% round(2)]}
+```
+
+
+```{r develop flags for Calworks eligibility}
+cps_calworks_subset <- 
+  cps_family[(n_kids_le13 >= 1)]
+
+calworks_flags <- 
+  cps_calworks_subset %>% 
+  .[j = .(calworks_flags = 1),
+  by = .(YEAR, MONTH, YEAR_MONTH, CPSID)]
+
 ```
 
 ```{r quick memory cleanup}
@@ -593,6 +607,18 @@ cps_elig <-
              ccdf_elig_tight_inc_adj = ccdf_elig_tight * (fam_incpov_ratio_adj <= local_ccdf_thresh/100),
              ccdf_elig_loose_inc     = ccdf_elig_loose * (fam_incpov_ratio     <= local_ccdf_thresh/100),
              ccdf_elig_loose_inc_adj = ccdf_elig_loose * (fam_incpov_ratio_adj <= local_ccdf_thresh/100))]
+```
+
+
+```{r merge calworks family measures into income}
+cps_elig <- 
+  cps_elig %>% 
+  merge(calworks_flags,
+        by = c("YEAR", "MONTH", "YEAR_MONTH", "CPSID"),
+        all.x = TRUE) %>% 
+  .[j = `:=`(calworks_elig_inc    = calworks_flags * (fam_incpov_ratio     <= 0.8),
+             calworks_elig_inc_adj    = calworks_flags * (fam_incpov_ratio_adj     <= 0.8))]
+
 ```
 
 ```{r Examine rates of cross-classification between Head Start PFA and CCDF, eval = developer_mode}
@@ -680,7 +706,8 @@ cps_child_base <-
           fam_incpov_ratio_cat_by50,  fam_incpov_ratio_cat_by50_adj, 
           fam_incpov_ratio_cat_by75,  fam_incpov_ratio_cat_by75_adj,
           fam_incpov_ratio_cat_by100, fam_incpov_ratio_cat_by100_adj,
-          fam_incpov_ratio_cat_to185, fam_incpov_ratio_cat_to185_adj)] %>% 
+          fam_incpov_ratio_cat_to185, fam_incpov_ratio_cat_to185_adj, 
+          fam_incpov_ratio_cat_byMix, fam_incpov_ratio_cat_byMix_adj)] %>% 
   merge(cps_base_hoh,
         by = "CPSID",
         all.x = TRUE)
@@ -715,14 +742,17 @@ cps_post <-
                  hoh_empl_post = 1*(EMPSTAT == 10),
                  deep_pov_post     = fam_incpov_ratio_le.5,
                  hs_elig_post      = fam_incpov_ratio_le1,
+                 #calworks_elig = fam_incpov_ratio_le.8,
                  pfa_elig_post     = fam_incpov_ratio_le2,
                  upk_elig_post     = fam_incpov_ratio_le2.25,
                  deep_pov_post_adj = fam_incpov_ratio_le.5_adj,
                  hs_elig_post_adj  = fam_incpov_ratio_le1_adj,
+                 #calworks_elig_adj = fam_incpov_ratio_le.8_adj,
                  pfa_elig_post_adj = fam_incpov_ratio_le2_adj,
                  upk_elig_post_adj = fam_incpov_ratio_le2.25_adj,
                  ccdf_elig_tight_inc, ccdf_elig_tight_inc_adj,
-                 ccdf_elig_loose_inc, ccdf_elig_loose_inc_adj)]
+                 ccdf_elig_loose_inc, ccdf_elig_loose_inc_adj,
+                 calworks_elig_inc, calworks_elig_inc_adj)]
 dim(cps_post)
 cps_post <- unique(cps_post)
 dim(cps_post)
