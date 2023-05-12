@@ -24,6 +24,8 @@ load(file = glue("{output_path}pop_data_{my_output_tag}.Rda"))
 # Below, there are several `if` clauses that already implement--and describe--
 # logic for selecting a sensitivity specific for each of several run specifications
 
+
+
 if (str_detect(my_output_tag, "IL2022")) {
   # Rationale is we're not just focused on metro areas, and we want the most
   # up-to-date estimates as possible
@@ -44,6 +46,18 @@ if (str_detect(my_output_tag, "IL2022")) {
     mutate(age = str_extract(sae_spec, "\\d+$"),
            age = case_when(age == "05"  ~ "age_0to5",
                            age == "612" ~ "age_6to12"),
+           sae_spec = str_replace(sae_spec, "_\\d+$", ""))
+} else {
+  # Rationale is we are focused on a metro areas, and we want estimates for 2022
+  # that are parallel to 2021, given that this method is part of a sequence of
+  # a sequence of annual reports
+  nowcast_selected_sens <-
+    nowcast_out[cps_geo_subsample == "metros" & 
+                cps_base_recency == "allbase"] %>% 
+    mutate(age = str_extract(sae_spec, "\\d+$"),
+           age = case_when(age == "05"  ~ "age_0to5",
+                           age == "612" ~ "age_6to12",
+                           age == "1317" ~ "age_13to17",),
            sae_spec = str_replace(sae_spec, "_\\d+$", ""))
 }
 ```
@@ -66,30 +80,37 @@ nowcast_parallel_deep_pov <-
   nowcast_parallel_setup %>% 
   filter(outcome_var == "deep_pov_post_adj",
          str_detect(sae_spec, "incpov_ctrls2534")) %>% 
-  mutate(base_share = share_0_50)
+  mutate(base_share = share_0_80)
 
 nowcast_parallel_hs_elig <- 
   nowcast_parallel_setup %>% 
   filter(outcome_var == "hs_elig_post_adj",
          str_detect(sae_spec, "incpov_ctrls2534")) %>% 
-  mutate(base_share = share_0_50 + share_50_100)
+  mutate(base_share = share_0_80 + share_80_100)
 
 nowcast_parallel_pfa_elig <- 
   nowcast_parallel_setup %>% 
   filter(outcome_var == "pfa_elig_post_adj",
          str_detect(sae_spec, "incpov_ctrls2534")) %>% 
-  mutate(base_share = share_0_50 + share_50_100 + share_100_200)
+  mutate(base_share = share_0_80 + share_80_100 + share_100_200)
 
 nowcast_parallel_upk_elig <- 
   nowcast_parallel_setup %>% 
   filter(outcome_var == "upk_elig_post_adj",
          str_detect(sae_spec, "incpov_ctrls2534")) %>% 
-  mutate(base_share = share_0_50 + share_50_100 + share_100_200)
+  mutate(base_share = share_0_80 + share_80_100 + share_100_200)
 
 nowcast_parallel_ccdf_elig <- 
   nowcast_parallel_setup %>% 
   filter(outcome_var == "ccdf_elig_tight_inc_adj",
          str_detect(sae_spec, "ccdf_wk_pov"))
+
+nowcast_parallel_calworks_elig <- 
+  nowcast_parallel_setup %>% 
+  filter(outcome_var == "calworks_elig_inc_adj",
+         str_detect(sae_spec, "incpov_ctrls2534")) %>%
+  mutate(base_share = share_0_80)
+
 
 if (local_ccdf_thresh == 185) {
   nowcast_parallel_ccdf_elig <- 
@@ -115,7 +136,9 @@ nowcast_parallel_preshape <-
             nowcast_parallel_hs_elig,
             nowcast_parallel_pfa_elig,
             nowcast_parallel_upk_elig,
-            nowcast_parallel_ccdf_elig) %>% 
+            nowcast_parallel_ccdf_elig,
+            nowcast_parallel_calworks_elig,
+            ) %>% 
   dplyr::select(GEOID, outcome_var, age, base_share, base_share_se, nowcast_share, nowcast_share_se) %>% 
   # /!\ ** This unique() should not be necessary. However, it's occurring because
   # there are duplicates resulting from a merge of the crosswalk file, due to
@@ -147,6 +170,9 @@ pop_by_age_long <-
   # population count estimates
   mutate(pop_count_se = 0) %>% 
   dplyr::select(-name)
+
+
+pop_by_age_long$GEOID = str_pad(pop_by_age_long$GEOID, width = 11, pad = "0")
 
 nowcast_parallel_counts <- 
   nowcast_parallel %>% 
@@ -296,6 +322,13 @@ plot_elig_diff_vs_char(outcome_string = "hs_elig",
 ```{r}
 plot_elig_diff_vs_char(outcome_string = "ccdf_elig",
                        outcome_desc   = glue("{local_ccdf_name_short} Eligibility"), 
+                       char_field     = "raceeth_wh_nonh_est",
+                       char_desc      = "% White Non-Hisp in Tract",
+                       save_tag       = "by white residence")
+```
+```{r}
+plot_elig_diff_vs_char(outcome_string = "calworks_elig",
+                       outcome_desc   = "CalWORKS Eligibility", 
                        char_field     = "raceeth_wh_nonh_est",
                        char_desc      = "% White Non-Hisp in Tract",
                        save_tag       = "by white residence")

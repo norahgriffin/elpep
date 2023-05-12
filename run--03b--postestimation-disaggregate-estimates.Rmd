@@ -46,8 +46,10 @@ if(local_ccdf_thresh == 200) {
 } 
 
 age_breakdown_byoutcome <-
- bind_rows(calc_breakdown(acs1_child %>% filter(fam_incpov_ratio_cat_mix   == "0%-50%"),
+ bind_rows(calc_breakdown(acs1_child %>% filter(fam_incpov_ratio_cat_mix   == "0%-80%"),
                           "deep_pov_post_adj"),
+           calc_breakdown(acs1_child %>% filter(fam_incpov_ratio_cat_mix   == "0%-80%"),
+                          "calworks_elig_inc_adj"),
            calc_breakdown(acs1_child %>% filter(fam_incpov_ratio_cat_by100 == "0%-100%"), 
                           "hs_elig_post_adj"),
            calc_breakdown(acs1_child %>% filter(fam_incpov_ratio_cat_by100 %in% c("0%-100%", "100%-200%")), 
@@ -73,6 +75,8 @@ pop_by_age_under5 <-
   pivot_longer(cols = matches("age"),
                names_to = "child_agegroup",
                values_to = "pop_count")
+
+pop_by_age_under5$GEOID <- str_pad(pop_by_age_under5$GEOID, width = 11, pad = "0")
 
 nowcast_elig_counts_0to5 <- 
   nowcast_parallel_counts %>% 
@@ -159,6 +163,8 @@ agg_tracts_up <- function(ests, agg_level) {
 ```
 
 ```{r implement various levels of geographic aggregation}
+
+geo_crosswalk_zcta$GEOID <- str_pad(geo_crosswalk_zcta$GEOID, width = 11, pad = "0")
 nowcast_agg_tract <- agg_tracts_up(nowcast_elig_counts_final, "GEOID")
 nowcast_agg_zip   <- agg_tracts_up(nowcast_elig_counts_final, "ZCTA")
 nowcast_agg_cty   <- agg_tracts_up(nowcast_elig_counts_final, "County")
@@ -209,7 +215,8 @@ write_agg_output <- function(x, agg_level, sheet_name, add, out_label) {
                                Outcome == "hs"   ~ "HS-Elig",
                                Outcome == "deep" ~ "Below 50% FPL",
                                Outcome == "pfa"  ~ "Below 200% FPL",
-                               Outcome == "upk"  ~ "Below 225% FPL"),
+                               Outcome == "upk"  ~ "Below 225% FPL", 
+                               Outcome == "calworks" ~ "Below 80% FPL"),
            
            # Calculate bounds, and round
            count_lb = round(count + qnorm(.1)*count_se),
@@ -309,6 +316,35 @@ if (exists("my_aux_geo")) {
                    add = TRUE,
                    out_label = "HS and UPK")
 }
+```
+
+
+```{r write various levels of geographic aggregation out to file for hs and upk}
+write_agg_output(x = nowcast_agg_tract %>% filter(str_detect(outcome_var, "calworks")),
+                 agg_level = "GEOID",   
+                 sheet_name = "Tract", 
+                 add = FALSE,
+                 out_label = "calworks")
+
+write_agg_output(x = nowcast_agg_zip %>% filter(str_detect(outcome_var, "calworks")),
+                 agg_level = "ZCTA",   
+                 sheet_name = "Zip Code", 
+                 add = TRUE,
+                 out_label = "calworks")
+
+write_agg_output(x = nowcast_agg_cty %>% filter(str_detect(outcome_var, "calworks")), 
+                 agg_level = "County", 
+                 sheet_name = "County",
+                 add = TRUE,
+                 out_label = "calworks")
+
+if (exists("my_aux_geo")) {
+  nowcast_ests_aux <- agg_tracts_up(nowcast_elig_counts_final, "aux_geo_label")  
+  write_agg_output(x = nowcast_ests_aux %>% filter(str_detect(outcome_var, "calworks")),
+                   agg_level = "aux_geo_label",
+                   sheet_name = my_aux_geo_desc, 
+                   add = TRUE,
+                   out_label = "calworks")}
 ```
 
 
@@ -521,12 +557,13 @@ static_map_level_diff <- function(plot_stats = c("nowcast", "diff"),
 
 ```{r generate static plots of ccdf eligibility in levels and differences}
 
-for (out_var in c("ccdf", "hs", "upk")) {
+for (out_var in c("ccdf", "hs", "upk", "calworks")) {
   out_var_desc <- 
     switch(out_var,
            "ccdf" = glue("CCAP Eligibility ({date_range})"),
            "hs"   = glue("Head Start Eligibility ({date_range})"),
-           "upk"  = glue("Income <225% ({date_range})"))
+           "upk"  = glue("Income <225% ({date_range})"),
+           "calworks"  = glue("CalWORKS Eligibility ({date_range})"))
   
   static_map_level_diff(estimates = nowcast_agg_zip %>% filter(age == "age_0to5"),
                         geo_level = "ZCTA",
@@ -544,14 +581,14 @@ for (out_var in c("ccdf", "hs", "upk")) {
                         #val_limits = c(0, 0.6),
                         show_legend = TRUE)
   
-  static_map_level_diff(estimates = nowcast_agg_aux %>% filter(age == "age_0to5"),
-                        geo_level = "aux",
-                        geo_level_merge_field = "aux_geo_label",
-                        outcome = out_var,
-                        field_desc = out_var_desc,
-                        save_map = TRUE, 
-                        #val_limits = c(0, 0.6),
-                        show_legend = TRUE) 
+ # static_map_level_diff(estimates = nowcast_agg_aux %>% filter(age == "age_0to5"),
+#                        geo_level = "aux",
+#                        geo_level_merge_field = "aux_geo_label",
+#                        outcome = out_var,
+#                        field_desc = out_var_desc,
+#                        save_map = TRUE, 
+#                        #val_limits = c(0, 0.6),
+#                        show_legend = TRUE) 
 }
 ```
 
