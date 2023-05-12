@@ -101,7 +101,8 @@ bin_age <- function(a) {
             #between(a,  5,  5) ~ "5to5", 
             between(a,  6,  8) ~ "6to8", 
             between(a,  9, 12) ~ "9to12", 
-            between(a, 13, 14) ~ "13to14") 
+            between(a, 13, 14) ~ "13to14",
+            between(a, 15, 17) ~ "15to17") 
 }
 
 # Recode poverty decimal ------------------------------------------------------#

@@ -169,7 +169,8 @@ if (print_documentation) {
 
 ```{r prepare ACS 1-year microdata for children}
 acs1_child <- 
-  acs1[AGEP <= 14] %>% 
+  #acs1[AGEP <= 14] %>% 
+  acs1[AGEP <= 18] %>% 
   merge(acs1_hoh, 
         by = c("YEAR", "SAMPLE", "SERIALNO"), 
         all.x = TRUE) %>%

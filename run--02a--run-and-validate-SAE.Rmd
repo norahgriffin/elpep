@@ -49,6 +49,10 @@ acs1_child05_baseyr <-
 acs1_child612_baseyr <-
   acs1_child[YEAR == base_year & 
                child_agegroup %in% c("6to8", "9to12")]
+
+acs1_child1317_baseyr <-
+  acs1_child[YEAR == base_year & 
+               child_agegroup %in% c("13to14", "15to17")]
 ```
 
 ```{r establish function for showing comparisons}
@@ -144,6 +148,9 @@ sae_controls_simple_05 <-
 sae_controls_simple_612 <- 
   paste0("incpov_6to11_r", incpov_ranges_for_estimation, "_est")
 
+sae_controls_simple_1317 <- 
+  paste0("incpov_12to17_r", incpov_ranges_for_estimation, "_est")
+
 sae_extra_controls <- 
   c(paste0(c("f_lesshs", "m_lesshs", "f_hsgrad", "m_hsgrad", "f_somecoll", "m_somecoll", # This is omitting `f_coll` and `m_coll`
              "pctMale_noSp", "pctFemale_noSp",                                           # This is omitting `pctMarried`
@@ -155,6 +162,9 @@ sae_controls_added_2534_05 <-
 
 sae_controls_added_2534_612 <- 
   c(sae_controls_simple_612, sae_extra_controls)
+
+sae_controls_added_2534_1317 <- 
+  c(sae_controls_simple_1317, sae_extra_controls)
 ```
 
 ```{r subset data for the SAE}
@@ -169,6 +179,9 @@ acs1_child05_sae <-
 
 acs1_child612_sae <- 
   acs1_child[between(AGEP, 6, 12)]
+
+acs1_child1317_sae <- 
+  acs1_child[between(AGEP, 13, 17)]
 
 acs5tract_sae <- acs5tract
 
@@ -203,7 +216,8 @@ pop_by_age_base <-
   # are for the prior 5 year period, not estimated for the base year as these are
   select(GEOID, 
           age_0to5_count_base =  age_0to5_count, 
-         age_6to12_count_base = age_6to12_count)
+         age_6to12_count_base = age_6to12_count,
+         age_13to17_count_base = age_13to17_count)
 
 #Norah added this:
 pop_by_age_base$GEOID = str_pad(pop_by_age_base$GEOID, 11, pad = "0")
@@ -218,7 +232,8 @@ acs5tract_sae_counts <-
   # /!\ These are placeholder values, which of course improperly assume that the
   # base-year estimates are perfectly precise. This must be replaced when possible.
   mutate( age_0to5_count_se_base = 0,
-         age_6to12_count_se_base = 0)
+         age_6to12_count_se_base = 0,
+         age_13to17_count_se_base = 0)
 
 # Compare ACS and 2020 counts
 ggplot(acs5tract_sae_counts,
@@ -249,6 +264,10 @@ run_sae_combos_bycontrols <- function(vul_vars, sae_input_data, my_controls) {
     pop_n_var    <- "age_6to12_count_base"    # "age_6to12_count" would be the alternative, from ACS5 data
     pop_n_se_var <- "age_6to12_count_se_base" # "age_6to12_se"    would be the alternative, from ACS5 data
   }
+  else if (identical(sae_input_data, acs1_child1317_sae)) {
+    pop_n_var    <- "age_13to17_count_base"    # "age_6to12_count" would be the alternative, from ACS5 data
+    pop_n_se_var <- "age_13to17_count_se_base" # "age_6to12_se"    would be the alternative, from ACS5 data
+  }
   #browser() 
   run_sae_combos(vul_vars       = vul_vars,
                  sae_input_data = sae_input_data,
@@ -273,8 +292,10 @@ if (rerun_sae) {
     runlist <- 
       list(sae_results_incpov_simple_05     = list(incpov_spec_field,      acs1_child05_sae,  sae_controls_simple_05),
            sae_results_incpov_simple_612    = list(incpov_spec_field,      acs1_child612_sae, sae_controls_simple_612),
+           sae_results_incpov_simple_1317    = list(incpov_spec_field,      acs1_child1317_sae, sae_controls_simple_1317),
            sae_results_incpov_ctrls2534_05  = list(incpov_spec_field,      acs1_child05_sae,  sae_controls_added_2534_05),
            sae_results_incpov_ctrls2534_612 = list(incpov_spec_field,      acs1_child612_sae, sae_controls_added_2534_612),
+           sae_results_incpov_ctrls2534_1317 = list(incpov_spec_field,      acs1_child1317_sae, sae_controls_added_2534_1317),
            sae_results_ccdf_wk_sp_05        = list("work_spouse_status",   acs1_child05_sae,  sae_controls_added_2534_05),
            sae_results_ccdf_wk_pov_05       = list(work_incpov_spec_field, acs1_child05_sae,  sae_controls_added_2534_05),
            sae_results_ccdf_wk_pov_612      = list(work_incpov_spec_field, acs1_child612_sae, sae_controls_added_2534_612))
@@ -305,8 +326,10 @@ if (rerun_sae) {
   } else {
     sae_results_incpov_simple_05     <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child05_sae,  sae_controls_simple_05)
     sae_results_incpov_simple_612    <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child612_sae, sae_controls_simple_612)
+    sae_results_incpov_simple_1317    <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child1317_sae, sae_controls_simple_1317)
     sae_results_incpov_ctrls2534_05  <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child05_sae,  sae_controls_added_2534_05)
     sae_results_incpov_ctrls2534_612 <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child612_sae, sae_controls_added_2534_612)
+    sae_results_incpov_ctrls2534_1317 <- run_sae_combos_bycontrols(incpov_spec_field,      acs1_child1317_sae, sae_controls_added_2534_1317)
     sae_results_ccdf_wk_sp_05        <- run_sae_combos_bycontrols("work_spouse_status",   acs1_child05_sae,  sae_controls_added_2534_05)
     sae_results_ccdf_wk_pov_05       <- run_sae_combos_bycontrols(work_incpov_spec_field, acs1_child05_sae,  sae_controls_added_2534_05)
     sae_results_ccdf_wk_pov_612       <- run_sae_combos_bycontrols(work_incpov_spec_field, acs1_child612_sae, sae_controls_added_2534_612)
@@ -314,8 +337,10 @@ if (rerun_sae) {
   
   specs <- c("incpov_simple_05", 
              "incpov_simple_612",
+             "incpov_simple_1317",
              "incpov_ctrls2534_05",
              "incpov_ctrls2534_612",
+             "incpov_ctrls2534_1317",
              "ccdf_wk_sp_05",
              "ccdf_wk_pov_05",
              "ccdf_wk_pov_612") 
@@ -329,8 +354,10 @@ if (rerun_sae) {
   sae_aux_data_acs5 <- acs5tract_sae
   sae_controls_list <- list(sae_controls_simple_05,
                             sae_controls_simple_612,
+                            sae_controls_simple_1317,
                             sae_controls_added_2534_05,
-                            sae_controls_added_2534_612)
+                            sae_controls_added_2534_612,
+                            sae_controls_added_2534_1317)
   results <- paste0("sae_results_", specs)
   
   # Save the bundle of objects
@@ -356,6 +383,7 @@ As a reality check, confirm that a single "direct" estimate applies to all tract
 
 ```{r check that all tracts in each puma have the same direct estimate}
 sae_results_incpov_simple_05_out %>% 
+#sae_results_incpov_simple_1317_out %>% 
   group_by(vc_value, GEOID, PUMA) %>% 
   summarize(ndups = n_distinct(share_direct) - 1) %>% 
   with(table(ndups))
@@ -365,6 +393,7 @@ Here, we are looking to see generally how the "Fay-Herriot" method results, whic
 
 ```{r compare direct vs FH output - first spec}
 sae_results_incpov_simple_05[["comp_viz"]] +
+#sae_results_incpov_simple_1317[["comp_viz"]] +
   labs(x = "Direct Share Estimate",
        y = "Fay-Herriott Share Estimates (Simple Spec)") +
   theme(legend.position = "none")
@@ -648,16 +677,20 @@ sae_results_ccdf_wk_pov_612[["agg_comp_model"]]$agg_comp_plot +
 ```{r compare correlations between puma-level observed and predicted values - fay herriot, eval = developer_mode}
 cbind(sae_results_incpov_simple_05[["agg_comp_fh"]]$agg_comp_cor     %>% mutate(simple_05     = round(V1, 3)) %>% select(-V1),
       sae_results_incpov_simple_612[["agg_comp_fh"]]$agg_comp_cor    %>% mutate(simple_612    = round(V1, 3)) %>% select(simple_612),
+      sae_results_incpov_simple_1317[["agg_comp_fh"]]$agg_comp_cor    %>% mutate(simple_1317    = round(V1, 3)) %>% select(simple_1317),
       sae_results_incpov_ctrls2534_05[["agg_comp_fh"]]$agg_comp_cor  %>% mutate(ctrls2534_05  = round(V1, 3)) %>% select(ctrls2534_05),
-      sae_results_incpov_ctrls2534_612[["agg_comp_fh"]]$agg_comp_cor %>% mutate(ctrls2534_612 = round(V1, 3)) %>% select(ctrls2534_612)) %>% 
+      sae_results_incpov_ctrls2534_612[["agg_comp_fh"]]$agg_comp_cor %>% mutate(ctrls2534_612 = round(V1, 3)) %>% select(ctrls2534_612),
+      sae_results_incpov_ctrls2534_1317[["agg_comp_fh"]]$agg_comp_cor %>% mutate(ctrls2534_1317 = round(V1, 3)) %>% select(ctrls2534_1317)) %>% 
   kable(caption = "Correlation of PUMA-level Observed and SAE Values from the Fay-Herriot Method")
 ```
 
 ```{r compare correlations between puma-level observed and predicted values - model, eval = developer_mode}
 cbind(sae_results_incpov_simple_05[["agg_comp_model"]]$agg_comp_cor     %>% mutate(simple_05     = round(V1, 3)) %>% select(-V1),
       sae_results_incpov_simple_612[["agg_comp_model"]]$agg_comp_cor    %>% mutate(simple_612    = round(V1, 3)) %>% select(simple_612),
+      sae_results_incpov_simple_1317[["agg_comp_model"]]$agg_comp_cor    %>% mutate(simple_1317    = round(V1, 3)) %>% select(simple_1317),
       sae_results_incpov_ctrls2534_05[["agg_comp_model"]]$agg_comp_cor  %>% mutate(ctrls2534_05  = round(V1, 3)) %>% select(ctrls2534_05),
-      sae_results_incpov_ctrls2534_612[["agg_comp_model"]]$agg_comp_cor %>% mutate(ctrls2534_612 = round(V1, 3)) %>% select(ctrls2534_612)) %>% 
+      sae_results_incpov_ctrls2534_612[["agg_comp_model"]]$agg_comp_cor %>% mutate(ctrls2534_612 = round(V1, 3)) %>% select(ctrls2534_612),
+      sae_results_incpov_ctrls2534_1317[["agg_comp_model"]]$agg_comp_cor %>% mutate(ctrls2534_1317 = round(V1, 3)) %>% select(ctrls2534_1317)) %>% 
   kable(caption = "Correlation of PUMA-level Observed and SAE Values from the Model-Only Method")
   # Note that these estimates will naturally be below those of the FH method, which blends the 
   # model estimates with the observe SAE values themselves
@@ -845,7 +878,7 @@ if (FALSE) {
 
 ```{r set up comparisons of data}
 pov_p <- 
-  lapply(c("05", "612"),
+  lapply(c("05", "612", "1317"),
          function(a) {
            get(glue("sae_results_incpov_ctrls2534_{a}"))$sae_out %>% 
              #Norah changed this from 0-50 and 50-100??? Not sure about it but i did it
@@ -866,6 +899,10 @@ tractShp_pov <-
   left_join(pov_p[[2]] %>% rename(acs1_pov_612      = acs1_pov,
                                   sae_pov_fh_612    = sae_pov_fh,
                                   sae_pov_model_612 = sae_pov_model),
+            by = "GEOID") %>% 
+  left_join(pov_p[[2]] %>% rename(acs1_pov_1317      = acs1_pov,
+                                  sae_pov_fh_1317    = sae_pov_fh,
+                                  sae_pov_model_1317 = sae_pov_model),
             by = "GEOID") %>% 
   left_join(acs5tract %>% select(GEOID, acs5_pov = incpov_r0to100_est),
             by = "GEOID")
@@ -921,6 +958,8 @@ limits_05  <- range(with(tractShp_pov, c(acs1_pov_05)),  # sae_pov_fh_05, sae_po
                     na.rm = TRUE)
 limits_612 <- range(with(tractShp_pov, c(acs1_pov_612)), # sae_pov_fh_612, sae_pov_model_612
                     na.rm = TRUE)
+limits_1317 <- range(with(tractShp_pov, c(acs1_pov_1317)), # sae_pov_fh_612, sae_pov_model_612
+                    na.rm = TRUE)
 ```
 
 ```{r generate maps}
@@ -934,5 +973,14 @@ my_dt <- tractShp_pov #%>% filter(str_detect(GEOID, "17031"))
 map_sae_components(my_dt, "acs1_pov_05",      "", val_limits = limits_05, save_label = "Poverty (ACS1), age 0-5")
 map_sae_components(my_dt, "acs5_pov",         "", val_limits = limits_05, save_label = "Poverty (ACS5), age 0-5")
 map_sae_components(my_dt, "sae_pov_model_05", "", val_limits = limits_05, save_label = "Poverty (SAE), age 0-5")
+
+map_sae_components(my_dt, "acs1_pov_612",      "", val_limits = limits_612, save_label = "Poverty (ACS1), age 6-12")
+map_sae_components(my_dt, "acs5_pov",         "", val_limits = limits_612, save_label = "Poverty (ACS5), age 6-12")
+map_sae_components(my_dt, "sae_pov_model_612", "", val_limits = limits_612, save_label = "Poverty (SAE), age 6-12")
+
+map_sae_components(my_dt, "acs1_pov_1317",      "", val_limits = limits_1317, save_label = "Poverty (ACS1), age 13-17")
+map_sae_components(my_dt, "acs5_pov",         "", val_limits = limits_1317, save_label = "Poverty (ACS5), age 13-17")
+map_sae_components(my_dt, "sae_pov_model_1317", "", val_limits = limits_1317, save_label = "Poverty (SAE), age 13-17")
+
 
 ```

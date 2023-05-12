@@ -167,7 +167,8 @@ cps_family <-
              fam_wgt = sum(WTFINL),
              has_schage_kid_base_flag = 1*(between(AGE, 6, 17)) %>% max(),
              n_own_kids = sum(1*RELATE %in% c(301, 303)),                           # 301 - child of head of household, 303 is step-child
-             n_kids_le16 = sum(AGE <= 16),                                          # this counts number of kids living in the household regardless of relationship to the head
+             n_kids_le16 = sum(AGE <= 16),
+             n_kids_le18 = sum(AGE <= 18),# this counts number of kids living in the household regardless of relationship to the head
              n_kids_le13 = sum(AGE <= 13),
              n_kids_le5  = sum(AGE <=  5),
              n_kids_0to2 = sum(between(AGE, 0, 2)),
@@ -581,7 +582,7 @@ if (FALSE) {
 
 ```{r develop flags for Calworks eligibility}
 cps_calworks_subset <- 
-  cps_family[(n_kids_le13 >= 1)]
+  cps_family[(n_kids_le18 >= 1)]
 
 calworks_flags <- 
   cps_calworks_subset %>% 

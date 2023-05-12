@@ -889,7 +889,11 @@ acs_childpop <-
          age_6to12_count = age_6to8_count + age_9to11_count + age_12to14_count*(1/3),
          age_6to12_se    = sqrt(age_6to8_se^2 + age_9to11_se^2 + (age_12to14_se*(1/3))^2),
          age_6to13_count = age_6to8_count + age_9to11_count + age_12to14_count*(2/3),
-         age_6to13_se    = sqrt(age_6to8_se^2 + age_9to11_se^2 + (age_12to14_se*(2/3))^2))
+         age_6to13_se    = sqrt(age_6to8_se^2 + age_9to11_se^2 + (age_12to14_se*(2/3))^2),
+         age_13to17_count = age_12to14_count*(2/3) + age_15to17_count,
+         age_13to17_se = sqrt((age_12to14_se*(2/3))^2) + age_15to17_se^2)
+
+
 
 # Check summary statistics.
 

@@ -114,6 +114,9 @@ run_sae <- function(direct_ests,                 # Direct, tract-level estimates
   
   # Copy and subset the auxiliary data used for modeling
   #browser()
+  #print("aux column names")
+  #print(colnames(aux_data))
+  
   aux_data_use <- 
     # Note: because we use data.table functions for calculating fields, we 
     # use `copy()` to avoid adjusting the original data with by-reference operations
@@ -137,7 +140,8 @@ run_sae <- function(direct_ests,                 # Direct, tract-level estimates
     
   # Get the name of the vulnerability field directly from the direct estimates data
   vc_value <- direct_ests$vc_value[1]
-  
+  #print("made it!")
+  #print(vc_value)
   # Subset the relevant direct estimates data
   direct_ests_tract <- 
     direct_ests %>% 

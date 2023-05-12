@@ -557,6 +557,7 @@ acs5_keep_vars <-
   unique(c("GEOID", "COUNTYFIP",
            "age_0to5_count",  "age_0to5_se", 
            "age_6to12_count", "age_6to12_se", 
+           "age_13to17_count", "age_13to17_se", 
            transition_pred_vars_acs5,
            sae_controls_list %>% unlist()))
 
@@ -575,8 +576,9 @@ pop_for_nowcast <-
   pop_by_age %>% 
   filter(year == base_year + 1) %>% 
   mutate(age_0to5_se  = 0,
-         age_6to12_se = 0) %>% 
-  select(GEOID, age_0to5_count, age_0to5_se, age_6to12_count, age_6to12_se)
+         age_6to12_se = 0,
+         age_13to17_se = 0) %>% 
+  select(GEOID, age_0to5_count, age_0to5_se, age_6to12_count, age_6to12_se, age_13to17_count, age_13to17_se)
 ```
 
 
